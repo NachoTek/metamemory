@@ -17,11 +17,11 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 1 of 6 (Audio Capture Foundation)
-Plan: 02 of 04 in current phase
+Plan: 03 of 04 in current phase
 Status: In progress
-Last activity: 2026-02-01 - Completed 01-02-PLAN.md
+Last activity: 2026-02-01 - Completed 01-03-PLAN.md
 
-Progress: ████░░░░░░ 25%
+Progress: ████████░░ 37.5%
 
 ---
 
@@ -55,9 +55,9 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 **Requirements (8):**
 - [◐] AUD-01: Capture microphone input (MicSource implemented)
 - [◐] AUD-02: Capture system audio output (SystemSource interface, needs Core Audio impl)
-- [ ] AUD-03: Capture microphone and system audio simultaneously
-- [ ] AUD-04: Select audio source(s) before recording starts
-- [ ] AUD-05: Start and stop recording with single-click actions
+- [✓] AUD-03: Capture microphone and system audio simultaneously (AudioSession supports dual-source)
+- [✓] AUD-04: Select audio source(s) before recording starts (SessionConfig with SourceConfig)
+- [✓] AUD-05: Start and stop recording with single-click actions (AudioSession.start/stop)
 - [◐] AUD-06: Capture audio using Windows 11 WASAPI endpoints (WASAPI detection working)
 - [x] AUD-07: Stream audio to disk during recording for crash recovery (PCM streaming implemented)
 - [✓] AUD-08: Test system can inject pre-recorded audio via FakeAudioModule (Complete)
@@ -89,6 +89,9 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-01 | Windows Core Audio for loopback | comtypes added for future Core Audio COM integration | Planned |
 | 2026-02-01 | Queue-based frame delivery | Producer-consumer pattern for thread-safe audio streaming | Active |
 | 2026-02-01 | WASAPI-first on Windows | Fail-fast for non-WASAPI devices to ensure AUD-06 compliance | Active |
+| 2026-02-01 | AudioSession consumer thread | Non-blocking frame processing with dedicated thread | Complete |
+| 2026-02-01 | soxr.ResampleStream for resampling | Streaming resampler for real-time audio processing | Complete |
+| 2026-02-01 | Mix sources by summing with clipping | Multiple audio sources mixed via float32 sum and clip | Complete |
 
 ---
 
@@ -105,14 +108,13 @@ None currently.
 ## Next Actions
 
 **Immediate:**
-1. Continue with Plan 03 (Session Wiring) - wire capture sources to session manager
+1. Continue with Plan 04 (File Streaming & Crash Recovery)
 2. Implement Windows Core Audio loopback capture for AUD-02 completion
-3. Begin audio file streaming to disk for AUD-07
 
 **Upcoming:**
-- Plan 03: Session wiring and lifecycle management
-- Plan 04: File streaming and crash recovery
-- Phase 2: Real-Time Transcription Engine
+- Plan 04: File streaming optimization and crash recovery polish
+- Phase 2: Real-Time Transcription Engine (Whisper integration)
+- Phase 3: Conversation State Management
 
 ---
 
