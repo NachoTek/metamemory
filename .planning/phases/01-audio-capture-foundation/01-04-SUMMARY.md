@@ -100,11 +100,26 @@ Each task was committed atomically:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Fixed SystemSource invalid channels error**
+
+- **Found during:** Checkpoint testing (user reported error)
+- **Issue:** SystemSource tried to open InputStream on output device, causing "Invalid number of channels" error
+- **Fix:** SystemSource now raises clear AudioSourceError explaining Windows Core Audio is required
+- **Files modified:** src/metamemory/audio/capture/sounddevice_source.py
+- **Verification:** SystemSource now provides helpful error message directing to mic-only recording
+- **Committed in:** 02deebe (deviation fix)
+
+---
+
+**Total deviations:** 1 auto-fixed (1 bug)
+**Impact on plan:** System audio capture requires Windows Core Audio implementation (planned for future). Mic-only recording works correctly.
 
 ## Issues Encountered
 
-None - implementation proceeded smoothly.
+- **System audio capture limitation:** WASAPI loopback requires Windows Core Audio API (pycaw/comtypes), not sounddevice's PortAudio. SystemSource now provides clear error message. Mic-only recording is fully functional.
+- **Test isolation issue:** test_session_reuse occasionally fails when run with full suite (FileExistsError), but passes when run individually. Pre-existing issue, not related to current changes.
 
 ## User Setup Required
 
@@ -114,12 +129,14 @@ None - no external service configuration required.
 
 **CHECKPOINT REACHED:** Manual verification required for 30+ minute recording stability.
 
+**Note:** System audio capture requires Windows Core Audio implementation (not yet complete). Please test with **mic-only** recording for now.
+
 This plan requires human verification of:
-- Mic-only recording (10 seconds)
-- System-only recording (10 seconds)
-- Both sources recording (short segment)
-- Crash recovery simulation (force-kill and recover)
-- Long-run stability (30+ minute recording)
+- ✅ Mic-only recording (10 seconds) - **Ready to test**
+- ⏸️ System-only recording (10 seconds) - **Blocked (needs Windows Core Audio)**
+- ⏸️ Both sources recording (short segment) - **Blocked (needs Windows Core Audio)**
+- ✅ Crash recovery simulation (force-kill and recover) - **Ready to test**
+- ✅ Long-run stability (30+ minute recording, mic-only) - **Ready to test**
 
 ## Next Phase Readiness
 
