@@ -1,81 +1,121 @@
-- truth: "CLI fake recording should create WAV of specified duration (e.g., 5 seconds)"
+---
+status: complete
+phase: 01-audio-capture-foundation
+source: 01-05-SUMMARY.md, 01-06-SUMMARY.md, 01-07-SUMMARY.md, 01-08-SUMMARY.md
+started: 2026-02-01
+updated: 2026-02-01T16:30:00Z
+---
+
+## Current Test
+
+[testing complete]
+
+## Tests
+
+### 1. CLI fake recording creates correct duration WAV
+expected: |
+  Run: python -m metamemory.audio.cli --fake path/to/test.wav --seconds 5
+  
+  You should see:
+  - Recording starts and shows progress
+  - Recording stops automatically after ~5 seconds
+  - A WAV file is created in the recordings directory
+  - The WAV file is approximately 5 seconds long (NOT 3+ hours)
+result: issue
+reported: "Recording was created and plays but it was the full 9 second length of the test file. a full 1 to 1 copy."
+severity: major
+
+### 2. Record button single-click works
+expected: |
+  Launch widget: python -m meetandread.main
+  
+  Click the center record button ONCE (not double-click)
+  
+  You should see:
+  - Button changes to recording state (glowing red pulse)
+  - Recording starts immediately
+  - Click once more to stop - recording stops immediately
+result: pass
+
+### 3. Source lobes single-click toggle works
+expected: |
+  With widget running, click the Mic lobe (left) ONCE
+  
+  You should see:
+  - Lobe toggles between active/inactive (visual color change)
+  - Click once more toggles it back
+  
+  Repeat for System lobe (right)
+result: pass
+
+### 4. Click vs drag detection works
+expected: |
+  With widget running:
+  
+  1. Click record button and drag slightly - widget should NOT drag, button should trigger
+  2. Click on empty widget area and drag - widget SHOULD drag to new position
+  3. Click lobe and drag slightly - lobe should toggle, widget should NOT drag
+result: issue
+reported: "There is no 'empty' area of the widget to try and drag from. everything that is not a button is empty space that clicks through to the applications below it."
+severity: major
+
+### 5. Settings lobe single-click works
+expected: |
+  With widget running, click the Settings lobe (top) ONCE
+  
+  You should see:
+  - Console output appears (settings action triggered)
+  - No double-click required
+result: pass
+
+### 6. No crash recovery prompt on clean startup
+expected: |
+  1. Start app, record a short clip (5 seconds), stop cleanly
+  2. Check recordings directory - should have .wav file, NO .pcm.part files
+  3. Close app completely
+  4. Restart app
+  
+  You should see:
+  - App starts normally WITHOUT any recovery prompt
+  - No dialog asking about crash leftovers
+result: pass
+
+### 7. Crash recovery still works for actual crashes
+expected: |
+  1. Start recording
+  2. Kill the app process during recording (simulate crash)
+  3. Restart app
+  
+  You should see:
+  - Recovery dialog appears asking about restoring partial recording
+  - Recovery works and restores the partial recording
+result: pass
+
+## Summary
+
+total: 7
+passed: 5
+issues: 2
+pending: 0
+skipped: 0
+
+## Gaps
+
+- truth: "CLI fake recording creates WAV of specified duration (--seconds N)"
   status: failed
-  reason: "User reported: Recording generated 3 hours 2 min 53 sec instead of expected 5 seconds. Test file was 7 seconds long but FakeAudioModule kept looping it repeatedly. No progress shown either."
+  reason: "User reported: Recording was created and plays but it was the full 9 second length of the test file. a full 1 to 1 copy."
   severity: major
-  test: 2
-  root_cause: "FakeAudioModule is created with hardcoded loop=True parameter (session.py:367), causing fake audio source to continuously loop to file indefinitely. Combined with a race condition where drain loop consumes frames while source's read thread is still adding them (sources stopped AFTER drain), this leads to extended recording duration."
-  artifacts:
-    - path: "src/metamemory/audio/session.py:367"
-      issue: "Hardcoded loop=True prevents natural termination - fake source generates frames infinitely"
-      suggested_fix: "Add loop parameter to SourceConfig and use it instead of hardcoded True"
-    - path: "src/metamemory/audio/session.py:290-315"
-      issue: "Sources stopped AFTER drain loop, causing race condition where drain competes with source's read thread"
-      suggested_fix: "Stop sources before running drain loop to prevent new frames being added during stop()"
-    - path: "src/metamemory/audio/cli.py:158"
-      issue: "No way to specify loop behavior when using --fake flag"
-      suggested_fix: "Add loop parameter to SourceConfig call and set loop=False for fake recordings"
-  missing:
-    - "loop parameter in SourceConfig dataclass (session.py:78-90)"
-    - "CLI argument or default behavior to set loop=False for fake audio sources"
-    - "Drain loop timeout mechanism to prevent excessive frame processing during stop()"
-  debug_session: ".planning/debug/fake-audio-looping.md"
-- truth: "Widget record button should respond to single click to start/stop recording"
+  test: 1
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+- truth: "Widget can be dragged from empty/non-interactive areas"
   status: failed
-  reason: "User reported: Button state change requires double click when it should require single click."
+  reason: "User reported: There is no 'empty' area of the widget to try and drag from. everything that is not a button is empty space that clicks through to the applications below it."
   severity: major
-  test: 5
-  root_cause: "Parent widget MeetAndReadWidget.mousePressEvent (lines 147-161) intercepts and accepts all left-button clicks on RecordButtonItem/ToggleLobeItem/SettingsLobeItem, preventing these items' own mousePressEvent handlers from executing. Items have correct click handlers that never get called because event.accept() stops propagation before events reach them."
-  artifacts:
-    - path: "src/metamemory/widgets/main_widget.py:147-161"
-      issue: "Parent widget consumes click events before items can handle them"
-      suggested_fix: "Don't accept events on interactive items - use mouseReleaseEvent with position threshold to distinguish click vs drag"
-    - path: "src/metamemory/widgets/main_widget.py:426-430"
-      issue: "RecordButtonItem.mousePressEvent never executed (blocked by parent)"
-      suggested_fix: "Events must propagate to this handler for single-click to work"
-    - path: "src/metamemory/widgets/main_widget.py:481-487"
-      issue: "ToggleLobeItem.mousePressEvent never executed (blocked by parent)"
-      suggested_fix: "Events must propagate to this handler for single-click to work"
-    - path: "src/metamemory/widgets/main_widget.py:514-518"
-      issue: "SettingsLobeItem.mousePressEvent never executed (blocked by parent)"
-      suggested_fix: "Events must propagate to this handler for single-click to work"
-  missing:
-    - "Click vs drag detection mechanism (position/time threshold)"
-    - "Event propagation coordination between drag and click handlers"
-    - "Only start dragging if click is NOT on interactive items"
-  debug_session: ".planning/debug/widget-double-click.md"
-- truth: "Widget source lobes (Mic/System) should respond to single click to toggle"
-  status: failed
-  reason: "User reported: Lobes do not respond to single click. They work with double click."
-  severity: major
-  test: 6
-  root_cause: "Same as record button - parent widget event.accept() blocks all single-click events from reaching interactive items. ToggleLobeItem has correct mousePressEvent but never executes."
-  artifacts:
-    - path: "src/metamemory/widgets/main_widget.py:147-161"
-      issue: "Parent widget consumes click events before items can handle them"
-      suggested_fix: "Don't accept events on interactive items"
-    - path: "src/metamemory/widgets/main_widget.py:481-487"
-      issue: "ToggleLobeItem.mousePressEvent never executed"
-      suggested_fix: "Events must propagate to this handler"
-  missing:
-    - "Click vs drag detection mechanism"
-    - "Event propagation coordination"
-  debug_session: ".planning/debug/widget-double-click.md"
-- truth: "Crash recovery should only prompt when there are actual crash leftovers, not on every startup"
-  status: failed
-  reason: "User reported: Recovery works correctly, BUT prompts on every startup even when app closed properly and wasn't recording. False positive detection."
-  severity: major
-  test: 8
-  root_cause: "finalize_stem() is called with default delete_part=False during normal recording finalization, leaving .pcm.part files in the directory after successful WAV creation. On subsequent startup, has_partial_recordings() detects these as crash leftovers, causing false positive recovery prompts."
-  artifacts:
-    - path: "src/metamemory/audio/session.py:326-329"
-      issue: "finalize_stem() called without delete_part=True, so .pcm.part files persist after successful finalization"
-      suggested_fix: "Add delete_part=True parameter to clean up .pcm.part files after successful WAV creation"
-    - path: "src/metamemory/audio/storage/wav_finalize.py:79-113"
-      issue: "finalize_stem() has delete_part=False default, preserving .pcm.part files after finalization"
-      suggested_fix: "Change default to True, or explicitly pass True from session.stop()"
-    - path: "src/metamemory/audio/storage/recovery.py:15-36"
-      issue: "find_part_files() returns ALL .pcm.part files without distinguishing completed from incomplete recordings"
-      suggested_fix: "No fix needed here - cleanup after finalization is the correct solution"
-  missing:
-    - "Cleanup of .pcm.part files after successful finalization"
-  debug_session: ".planning/debug/crash-recovery-false-positive.md"
+  test: 4
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
