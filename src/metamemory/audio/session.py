@@ -95,17 +95,23 @@ class SourceConfig:
 @dataclass
 class SessionConfig:
     """Configuration for a recording session.
-    
+
     Attributes:
         sources: List of source configurations to record from
         output_dir: Optional override for output directory
         sample_rate: Target sample rate in Hz (default: 16000)
         channels: Target channel count (default: 1 for mono)
+        max_frames: Optional hard cap on frames to write to disk. Once this
+            many frames are recorded, the consumer continues consuming frames
+            but discards them (does not write). This ensures deterministic
+            bounded recordings even if sources emit faster than real-time.
+            Calculated as: int(round(seconds * sample_rate))
     """
     sources: List[SourceConfig] = field(default_factory=list)
     output_dir: Optional[Path] = None
     sample_rate: int = 16000
     channels: int = 1
+    max_frames: Optional[int] = None
 
 
 @dataclass
@@ -383,46 +389,87 @@ class AudioSession:
     
     def _consumer_loop(self) -> None:
         """Background thread that reads from sources and writes to disk."""
+        discard_mode = False
+        max_frames = self._config.max_frames if self._config else None
+
         while not self._stop_event.is_set():
             # Check writer is available
             if not self._writer:
                 break
-            
+
             # Read from all sources
             frames_list = []
             for wrapper in self._sources:
                 frames = wrapper.read_and_process(timeout=0.05)
                 if frames is not None:
                     frames_list.append(frames)
-            
+
             if not frames_list:
                 # No frames available, sleep briefly
                 time.sleep(0.01)
                 continue
-            
+
             # Mix frames together
             mixed = self._mix_frames(frames_list)
-            
+
+            # Check max_frames cap
+            if max_frames is not None and not discard_mode:
+                remaining = max_frames - self._stats.frames_recorded
+                if remaining <= 0:
+                    # Cap reached, switch to discard mode
+                    discard_mode = True
+                elif len(mixed) > remaining:
+                    # Partial chunk would exceed cap - write only remaining frames
+                    mixed = mixed[:remaining]
+                    int16_bytes = self._float32_to_int16_bytes(mixed)
+                    self._writer.write_frames_i16(int16_bytes)
+                    self._stats.frames_recorded += len(mixed)
+                    # Switch to discard mode after final write
+                    discard_mode = True
+                    continue
+
+            if discard_mode:
+                # In discard mode: consume frames but don't write
+                continue
+
             # Convert to int16 and write
             int16_bytes = self._float32_to_int16_bytes(mixed)
             self._writer.write_frames_i16(int16_bytes)
             self._stats.frames_recorded += len(mixed)
-        
-        # Drain remaining frames
+
+        # Drain remaining frames (respecting max_frames cap)
         for _ in range(50):  # Brief drain period
             if not self._writer:
                 break
-            
+
+            # Check if we've already hit the cap
+            if max_frames is not None and self._stats.frames_recorded >= max_frames:
+                # Consume but discard remaining frames to prevent queue blocking
+                for wrapper in self._sources:
+                    wrapper.read_and_process(timeout=0.01)
+                continue
+
             frames_list = []
             for wrapper in self._sources:
                 frames = wrapper.read_and_process(timeout=0.01)
                 if frames is not None:
                     frames_list.append(frames)
-            
+
             if not frames_list:
                 break
-            
+
             mixed = self._mix_frames(frames_list)
+
+            # Check max_frames cap during drain
+            if max_frames is not None:
+                remaining = max_frames - self._stats.frames_recorded
+                if remaining <= 0:
+                    # Cap already reached, consume but don't write
+                    continue
+                elif len(mixed) > remaining:
+                    # Partial chunk - write only remaining frames
+                    mixed = mixed[:remaining]
+
             int16_bytes = self._float32_to_int16_bytes(mixed)
             self._writer.write_frames_i16(int16_bytes)
             self._stats.frames_recorded += len(mixed)
