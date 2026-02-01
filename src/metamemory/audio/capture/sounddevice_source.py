@@ -164,7 +164,14 @@ class MicSource(SoundDeviceSource):
 
 
 class SystemSource(SoundDeviceSource):
-    """System audio loopback capture source using Windows Core Audio API."""
+    """System audio loopback capture source.
+    
+    NOTE: This is a placeholder implementation. Actual WASAPI loopback capture
+    requires Windows Core Audio API (pycaw/comtypes), not sounddevice's PortAudio.
+    
+    For now, this will raise an error with a helpful message directing users
+    to the implementation status.
+    """
     
     def __init__(
         self,
@@ -179,32 +186,10 @@ class SystemSource(SoundDeviceSource):
                 "SystemSource is only supported on Windows with WASAPI loopback"
             )
         
-        # If no device specified, find a WASAPI output device
-        if device_id is None:
-            loopback_devices = list_loopback_outputs()
-            wasapi_devices = [d for d in loopback_devices if d.get('loopback_ok')]
-            if not wasapi_devices:
-                raise AudioSourceError(
-                    "No WASAPI loopback-capable output devices found"
-                )
-            device_id = wasapi_devices[0]['index']
-            # Use device defaults if not specified
-            if channels is None:
-                channels = min(2, wasapi_devices[0]['max_output_channels'])
-            if samplerate is None:
-                samplerate = int(wasapi_devices[0]['default_samplerate'])
-        
-        super().__init__(
-            device_id=device_id,
-            channels=channels or 2,
-            samplerate=samplerate or 48000,
-            blocksize=blocksize,
-            dtype='float32',
-            queue_size=queue_size,
+        # TEMPORARY: System audio loopback requires Windows Core Audio implementation
+        # which is planned for a future update. For now, we provide a clear error.
+        raise AudioSourceError(
+            "System audio capture requires Windows Core Audio loopback implementation. "
+            "Please use microphone-only recording for now. "
+            "(Planned: WASAPI loopback via Windows Core Audio API)"
         )
-        
-        # Note: Actual loopback capture requires Windows Core Audio API
-        # The sounddevice library doesn't expose WASAPI loopback directly
-        # This implementation provides the interface; full loopback capture
-        # requires additional implementation using Windows Core Audio
-        self._is_loopback_device = True
