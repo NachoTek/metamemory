@@ -1,7 +1,7 @@
 # Roadmap: meetandread
 
 **Created:** 2026-01-31
-**Requirements:** 68 v1 requirements | 0 v2 requirements
+**Requirements:** 93 v1 requirements | 0 v2 requirements
 **Phases:** 6 phases for MVP completion
 
 ---
@@ -125,39 +125,50 @@ Speaker diarization provides critical context for downstream AI agents. Knowing 
 
 ---
 
-## Phase 5: Windows 11 UI & System Integration
+## Phase 5: Widget Interface & System Integration
 
-**Goal:** Create functional Windows 11 Fluent Design interface with system tray integration
+**Goal:** Create borderless widget interface with integrated transcript panel, visual state management, and system tray integration
 
-**Requirements:** UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08, UI-09, UI-10, TMT-01, TMT-02, TMT-03, TMT-04, TMT-05, TMT-06, TMT-07, TMT-08
+**Requirements:** WIDGET-01 through WIDGET-35, TMT-01, TMT-02, TMT-03, TMT-04, TMT-05, TMT-06, TMT-07, TMT-08
 
 **Success Criteria:**
-1. Windows 11 Fluent Design UI is functional and responsive
-2. Record/Stop controls work intuitively
-3. Audio source selection is clear and functional
-4. Real-time transcript display shows text with confidence colors
-5. System tray integration provides quick access to controls
-6. Right-click menu functions correctly
-7. Multi-monitor support works for transcript window placement
-8. Transcripts save correctly with timestamps and speaker labels
-9. Recording list displays saved transcripts
-10. Transcript format is optimized for AI agent consumption
+1. Borderless widget renders correctly without window chrome
+2. Widget remains always-on-top and draggable to any position
+3. Snap-to-edges behavior works within 20px of screen edges
+4. Widget shows 4/5ths when docked to edge
+5. Record button displays correct visual states: idle (translucent glass), recording (glowing red pulse), processing (swirling animation)
+6. Audio input toggle lobes function correctly and show active/inactive states
+7. Transcript panel flows out from widget as integrated component (not separate window)
+8. Transcript panel auto-expands when recording starts and can be manually collapsed
+9. Chat-style transcript displays speaker names with unique colors per speaker
+10. Unknown speakers show sequential numbering (Unknown Speaker 1, 2, etc.)
+11. Transcript auto-scrolls with 10-second pause on manual scroll
+12. Confidence color coding displays correctly on transcript text
+13. Enhanced segments (from dual-mode) display in bold formatting
+14. Settings lobe/button provides access to configuration
+15. Right-click context menu functions correctly
+16. System tray integration provides secondary access and status indication
+17. Transcripts save correctly with timestamps and speaker labels
+18. Recording list displays saved transcripts
+19. Transcript format is optimized for AI agent consumption
 
 **Phase Context:**
-The user interface must be functional but doesn't need polish for MVP. Windows 11 Fluent Design provides the visual foundation. System tray integration is critical for the "invisible infrastructure" experience.
+The widget interface is a departure from traditional desktop applications. It must feel like a cohesive integrated component rather than separate floating windows. The widget body (record button) with attached lobes creates a unique visual metaphor that needs careful implementation. The transcript panel must flow organically from the widget, maintaining the illusion of a single unified interface element. Visual states must communicate clearly without being distracting.
 
 **Technical Focus:**
-- PyQt6/PySide6 Windows 11 Fluent Design implementation
-- Main application window layout
-- Real-time transcript display widget
-- Confidence color legend widget
-- System tray icon and menu
-- Audio source selection controls
-- Recording controls (Record/Stop)
-- Recording list view
+- PyQt6/PySide6 borderless frameless window implementation
+- Custom widget painting for translucent glass effects
+- Animation framework for pulse and swirl effects
+- Drag and drop with snap-to-edge logic
+- Custom widget shape and transparency
+- Lobe component attachment and positioning
+- Transcript panel slide-out animation
+- Chat-style transcript rendering with speaker colors
+- Auto-scroll with user interruption logic
+- System tray icon and menu integration
+- Multi-monitor awareness for widget positioning
 - Transcript save/load functionality
 - Markdown formatting with metadata
-- Multi-monitor window management
 
 ---
 
@@ -208,10 +219,10 @@ The reliability phase ensures the application is production-ready. Monitoring he
 | 2 | Real-Time Transcription Engine | 10 | Whisper integration, latency, confidence |
 | 3 | Dual-Mode Enhancement Architecture | 16 | Innovation validation, background processing |
 | 4 | Speaker Identification & Voice Signatures | 8 | Diarization, signatures, cross-recording ID |
-| 5 | Windows 11 UI & System Integration | 18 | Fluent Design, system tray, transcript mgmt |
+| 5 | Widget Interface & System Integration | 43 | Widget design, lobes, transcript panel, animations |
 | 6 | System Monitoring, Reliability & Testing | 8 | Monitoring, graceful degradation, validation |
 
-**Total:** 68 requirements across 6 phases
+**Total:** 93 requirements across 6 phases
 
 ---
 
@@ -251,4 +262,4 @@ The reliability phase ensures the application is production-ready. Monitoring he
 
 ---
 
-*Last updated: 2026-01-31 after roadmap creation*
+*Last updated: 2026-02-01 after widget UI requirements refinement*

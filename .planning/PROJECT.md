@@ -2,9 +2,9 @@
 
 ## What This Is
 
-meetandread is a Windows desktop application that provides silent, invisible audio transcription as cognitive augmentation infrastructure. It captures system audio and microphone input simultaneously, transcribing in real-time using local Whisper models. The application produces accurate, speaker-diarized transcripts optimized for downstream AI agent processing, enabling automated task extraction and action item tracking.
+meetandread is a Windows desktop widget-style application that provides silent, invisible audio transcription as cognitive augmentation infrastructure. It appears as a compact, always-on-top widget with a record button body and toggle lobes for audio input selection. The widget captures system audio and microphone input simultaneously, transcribing in real-time using local Whisper models. A transcript panel flows out from the widget showing chat-style transcription with speaker identification and confidence color-coding. The application produces accurate, speaker-diarized transcripts optimized for downstream AI agent processing, enabling automated task extraction and action item tracking.
 
-**For:** ADHD professionals and technical workers who need to capture conversations without the cognitive load of note-taking during meetings and calls.
+**For:** ADHD professionals and technical workers who need to capture conversations without the cognitive load of note-taking during meetings and calls, using an interface that blends into the desktop rather than demanding attention.
 
 ## Core Value
 
@@ -18,6 +18,7 @@ meetandread is a Windows desktop application that provides silent, invisible aud
 
 ### Active
 
+**Core Capabilities:**
 - [ ] Capture microphone and system audio simultaneously using Windows WASAPI
 - [ ] Real-time transcription with Whisper small model (< 2s latency)
 - [ ] Dual-mode enhancement: background large model processes low-confidence segments
@@ -25,8 +26,6 @@ meetandread is a Windows desktop application that provides silent, invisible aud
 - [ ] Speaker detection and voice signature generation using X-vector embeddings
 - [ ] Cross-recording speaker re-identification (90%+ accuracy target)
 - [ ] Manual speaker pinning workflow for labeling transcript segments
-- [ ] Windows 11 Fluent Design UI with real-time transcript display
-- [ ] System tray integration with recording controls
 - [ ] Save transcripts as markdown with timestamps and speaker labels
 - [ ] Hardware detection with model size recommendations
 - [ ] Configurable enhancement workers and confidence threshold
@@ -34,6 +33,18 @@ meetandread is a Windows desktop application that provides silent, invisible aud
 - [ ] Graceful degradation when system resources constrained
 - [ ] Dual-mode Go/No-Go validation after 1-2 weeks testing
 - [ ] FakeAudioModule for reproducible benchmarking and testing
+
+**Widget Interface:**
+- [ ] Borderless compact widget design, always-on-top, draggable with snap-to-edges
+- [ ] Record button as main widget body with 3 visual states: idle (translucent glass), recording (glowing red pulse), processing (swirling animation)
+- [ ] Audio input toggle lobes (microphone, system audio) attached to record button
+- [ ] Transcript panel that flows out from widget as integrated component
+- [ ] Chat-style transcript display with speaker names and unique colors per speaker
+- [ ] Sequential unknown speaker numbering (Unknown Speaker 1, 2, etc.) for cross-recording tracking
+- [ ] Auto-expanding transcript panel when recording starts, user-collapsible
+- [ ] Auto-scroll with 10-second pause when user manually scrolls
+- [ ] Settings lobe/button for configuration access
+- [ ] System tray integration for secondary access and status indication
 
 ### Out of Scope
 
@@ -105,4 +116,4 @@ meetandread is a Windows desktop application that provides silent, invisible aud
 | Markdown transcript output | AI-agent friendly format; downstream systems can parse easily | — Pending |
 
 ---
-*Last updated: 2026-01-31 after project initialization*
+*Last updated: 2026-02-01 after widget UI requirements refinement*
