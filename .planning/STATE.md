@@ -17,11 +17,11 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 1 of 6 (Audio Capture Foundation)
-Plan: 01 of 04 in current phase
+Plan: 02 of 04 in current phase
 Status: In progress
-Last activity: 2026-02-01 - Completed 01-01-PLAN.md
+Last activity: 2026-02-01 - Completed 01-02-PLAN.md
 
-Progress: ██░░░░░░░░ 13%
+Progress: ████░░░░░░ 25%
 
 ---
 
@@ -29,7 +29,7 @@ Progress: ██░░░░░░░░ 13%
 
 | Phase | Status | Progress | Requirements |
 |-------|--------|----------|--------------|
-| 1 | ◐ | 13% | 8 |
+| 1 | ◐ | 25% | 8 |
 | 2 | ○ | 0% | 10 |
 | 3 | ○ | 0% | 16 |
 | 4 | ○ | 0% | 8 |
@@ -53,14 +53,14 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 **Goal:** Establish reliable audio capture from microphone and system audio using Windows WASAPI
 
 **Requirements (8):**
-- [ ] AUD-01: Capture microphone input
-- [ ] AUD-02: Capture system audio output
+- [◐] AUD-01: Capture microphone input (MicSource implemented)
+- [◐] AUD-02: Capture system audio output (SystemSource interface, needs Core Audio impl)
 - [ ] AUD-03: Capture microphone and system audio simultaneously
 - [ ] AUD-04: Select audio source(s) before recording starts
 - [ ] AUD-05: Start and stop recording with single-click actions
-- [ ] AUD-06: Capture audio using Windows 11 WASAPI endpoints
-- [x] AUD-07: Stream audio to disk during recording for crash recovery
-- [ ] AUD-08: Test system can inject pre-recorded audio via FakeAudioModule
+- [◐] AUD-06: Capture audio using Windows 11 WASAPI endpoints (WASAPI detection working)
+- [x] AUD-07: Stream audio to disk during recording for crash recovery (PCM streaming implemented)
+- [✓] AUD-08: Test system can inject pre-recorded audio via FakeAudioModule (Complete)
 
 **Success Criteria:**
 1. User can start recording and capture clean audio from selected source(s)
@@ -85,6 +85,10 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-01 | Use stdlib wave module | Lower risk than hand-rolled WAV headers | Complete |
 | 2026-02-01 | PCM + JSON sidecar format | Simpler, debuggable, enables crash recovery | Complete |
 | 2026-02-01 | Preserve originals on recovery | Safer default for user data | Complete |
+| 2026-02-01 | sounddevice WasapiSettings limitation | API doesn't expose loopback parameter - use device detection | Documented |
+| 2026-02-01 | Windows Core Audio for loopback | comtypes added for future Core Audio COM integration | Planned |
+| 2026-02-01 | Queue-based frame delivery | Producer-consumer pattern for thread-safe audio streaming | Active |
+| 2026-02-01 | WASAPI-first on Windows | Fail-fast for non-WASAPI devices to ensure AUD-06 compliance | Active |
 
 ---
 
@@ -92,16 +96,23 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 
 None currently.
 
+**Notes:**
+- System audio loopback capture interface defined but needs Windows Core Audio implementation
+- PortAudio WASAPI loopback symbol not exported in sounddevice binary
+
 ---
 
 ## Next Actions
 
 **Immediate:**
-1. Execute plan 01-02 (device enumeration already complete - move to 01-03 or 01-04)
-2. Continue Phase 1 implementation (WASAPI capture)
+1. Continue with Plan 03 (Session Wiring) - wire capture sources to session manager
+2. Implement Windows Core Audio loopback capture for AUD-02 completion
+3. Begin audio file streaming to disk for AUD-07
 
 **Upcoming:**
-- Phase 2 planning (Real-Time Transcription Engine)
+- Plan 03: Session wiring and lifecycle management
+- Plan 04: File streaming and crash recovery
+- Phase 2: Real-Time Transcription Engine
 
 ---
 
