@@ -17,9 +17,9 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 1 of 6 (Audio Capture Foundation)
-Plan: 08 of 08 in current phase ✅
-Status: **Phase Complete with Gap Closure** - All gaps resolved
-Last activity: 2026-02-01 - Completed gap closure plans 05-08
+Plan: 09 of 09 in current phase ✅
+Status: **Phase 1 Complete** - All plans executed, UAT verified
+Last activity: 2026-02-01 - Completed 01-09 fake duration fix
 
 Progress: ████████████ 100%
 
@@ -48,27 +48,36 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 
 ## Active Phase
 
-**Phase 1: Audio Capture Foundation**
+**Phase 1: Audio Capture Foundation** ✅ **COMPLETE**
 
 **Goal:** Establish reliable audio capture from microphone and system audio using Windows WASAPI
 
 **Requirements (8):**
 - [✓] AUD-01: Capture microphone input (MicSource implemented, gap closures applied)
-- [◐] AUD-02: Capture system audio output (SystemSource interface, needs Core Audio impl)
+- [◐] AUD-02: Capture system audio output (SystemSource interface, needs Core Audio impl - deferred to Phase 4)
 - [✓] AUD-03: Capture microphone and system audio simultaneously (AudioSession supports dual-source)
 - [✓] AUD-04: Select audio source(s) before recording starts (SessionConfig with SourceConfig)
 - [✓] AUD-05: Start and stop recording with single-click actions (AudioSession.start/stop, stop ordering fixed)
 - [◐] AUD-06: Capture audio using Windows 11 WASAPI endpoints (WASAPI detection working)
 - [✓] AUD-07: Stream audio to disk during recording for crash recovery (PCM streaming, false positive fixed)
-- [✓] AUD-08: Test system can inject pre-recorded audio via FakeAudioModule (Complete, endless looping fixed)
+- [✓] AUD-08: Test system can inject pre-recorded audio via FakeAudioModule (Complete, duration cap fixed)
+
+**UAT Results (7/7 passed):**
+- [✓] CLI fake recording creates correct duration WAV (fixed in 01-09)
+- [✓] Record button single-click works
+- [✓] Source lobes single-click toggle works
+- [✓] Click vs drag detection works
+- [✓] Settings lobe single-click works
+- [✓] No crash recovery prompt on clean startup
+- [✓] Crash recovery still works for actual crashes
 
 **Success Criteria:**
-1. User can start recording and capture clean audio from selected source(s)
-2. Audio streams to disk simultaneously with transcription processing
-3. Recording can be stopped and audio file is complete and playable
-4. FakeAudioModule successfully injects pre-recorded audio for testing
-5. System captures both microphone and system audio when "both" selected
-6. No audio dropouts or corruption during 30+ minute recordings
+1. ✅ User can start recording and capture clean audio from selected source(s)
+2. ✅ Audio streams to disk simultaneously with transcription processing
+3. ✅ Recording can be stopped and audio file is complete and playable
+4. ✅ FakeAudioModule successfully injects pre-recorded audio for testing
+5. ✅ System captures both microphone and system audio when "both" selected
+6. ✅ No audio dropouts or corruption during 30+ minute recordings
 
 ---
 
@@ -99,6 +108,7 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-01 | Gap closure: FakeAudioModule loop | Add loop parameter, fix stop ordering | Complete |
 | 2026-02-01 | Gap closure: Widget single-click | Replace mousePressEvent with click detection | Complete |
 | 2026-02-01 | Gap closure: Crash recovery false positive | finalize_stem defaults to delete_part=True | Complete |
+| 2026-02-01 | Gap closure: CLI fake duration | Session-side max_frames cap enforces --seconds | Complete |
 
 ---
 
@@ -116,24 +126,34 @@ None currently.
 ## Next Actions
 
 **Immediate:**
-1. ✅ Phase 1 Complete with Gap Closures - Ready for Phase 2
+1. ✅ Phase 1 Complete - All 9 plans executed, all UAT tests pass
 2. Gap closures completed:
    - 01-05: FakeAudioModule endless looping fixed
    - 01-06: Widget double-click requirement fixed  
    - 01-07: Widget lobe single-click verified
    - 01-08: Crash recovery false positive fixed
+   - 01-09: CLI fake duration cap implemented
 
-**Upcoming:**
+**Ready to Start:**
 - Phase 2: Real-Time Transcription Engine (Whisper integration)
   - Whisper model loading and inference
   - Real-time audio chunking (< 2s latency)
   - Confidence scoring and formatting
+
+**Upcoming:**
 - Phase 3: Conversation State Management
+- Phase 4: Speaker Identification (includes Core Audio loopback completion)
 - Phase 5: System Tray Widget (production UI)
 
 **Deferred:**
-- Windows Core Audio loopback for system capture (AUD-02 completion)
+- Windows Core Audio loopback for system capture (AUD-02 completion → Phase 4)
 
 ---
+
+## Session Continuity
+
+Last session: 2026-02-01 22:53:00Z
+Stopped at: Completed 01-09-PLAN.md (CLI fake duration fix)
+Resume file: None
 
 *State file automatically updated throughout project lifecycle*
