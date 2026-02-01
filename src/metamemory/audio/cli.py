@@ -155,7 +155,7 @@ def cmd_record(args) -> int:
         if not fake_path.exists():
             print(f"Error: Fake audio file not found: {fake_path}", file=sys.stderr)
             return 1
-        sources.append(SourceConfig(type='fake', fake_path=str(fake_path)))
+        sources.append(SourceConfig(type='fake', fake_path=str(fake_path), loop=False))
         print(f"Recording from fake source ({fake_path}) for {args.seconds} seconds...")
     
     # Create session config

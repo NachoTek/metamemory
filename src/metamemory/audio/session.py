@@ -41,8 +41,10 @@ import queue
 from metamemory.audio.storage import (
     PcmPartWriter,
     finalize_part_to_wav,
+    finalize_stem,
     new_recording_stem,
     get_recordings_dir,
+    get_wav_filename,
 )
 from metamemory.audio.capture import (
     MicSource,
@@ -75,17 +77,19 @@ class NoSourcesError(SessionError):
 @dataclass
 class SourceConfig:
     """Configuration for a single audio source in a session.
-    
+
     Attributes:
         type: Source type - 'mic', 'system', or 'fake'
         device_id: Optional device ID (None for auto-select)
         gain: Gain multiplier (1.0 = unity, 0.5 = half, 2.0 = double)
         fake_path: Path to WAV file (only for type='fake')
+        loop: Whether to loop fake audio source (only for type='fake', default: False)
     """
     type: str  # 'mic', 'system', 'fake'
     device_id: Optional[int] = None
     gain: float = 1.0
     fake_path: Optional[str] = None
+    loop: bool = False
 
 
 @dataclass
@@ -143,10 +147,11 @@ class AudioSourceWrapper:
         
         # Create resampler if needed
         if self.source_rate != self.target_rate:
-            self._resampler = soxr.Resample(
-                self.source_rate,
-                self.target_rate,
-                self.target_channels,
+            self._resampler = soxr.ResampleStream(
+                in_rate=self.source_rate,
+                out_rate=self.target_rate,
+                num_channels=target_channels,
+                dtype='float32',
             )
         else:
             self._resampler = None
@@ -177,7 +182,8 @@ class AudioSourceWrapper:
             # soxr expects (samples, channels) shape
             if frames.ndim == 1:
                 frames = frames.reshape(-1, 1)
-            frames = self._resampler.resample(frames)
+            # Use resample_chunk for streaming resampler
+            frames = self._resampler.resample_chunk(frames)
         
         return frames
     
@@ -297,29 +303,31 @@ class AudioSession:
         
         self._state = SessionState.STOPPING
         self._stop_event.set()
-        
-        # Wait for consumer thread to finish
+
+        # Stop all sources first (prevents new frames from being added)
+        for wrapper in self._sources:
+            wrapper.stop()
+
+        # Wait for consumer thread to finish (drains existing frames)
         if self._consumer_thread:
             self._consumer_thread.join(timeout=5.0)
-        
+
         # Calculate final stats
         if self._start_time:
             self._stats.duration_seconds = time.time() - self._start_time
-        
-        # Stop all sources
-        for wrapper in self._sources:
-            wrapper.stop()
-        
+
         # Close writer
         if self._writer:
             self._writer.close()
         
         # Finalize to WAV
+        if not self._stem:
+            raise SessionError("No stem available for finalization")
+        
         output_dir = self._config.output_dir if self._config else None
-        wav_path = finalize_part_to_wav(
-            self._writer.part_path,
-            self._writer.metadata_path,
-            output_dir=output_dir,
+        wav_path = finalize_stem(
+            stem=self._stem,
+            recordings_dir=output_dir or get_recordings_dir(),
         )
         
         self._state = SessionState.FINALIZED
@@ -358,7 +366,7 @@ class AudioSession:
                     wav_path=source_config.fake_path,
                     blocksize=1024,
                     queue_size=10,
-                    loop=True,
+                    loop=source_config.loop,
                 )
             else:
                 raise SessionError(f"Unknown source type: {source_config.type}")
@@ -376,6 +384,10 @@ class AudioSession:
     def _consumer_loop(self) -> None:
         """Background thread that reads from sources and writes to disk."""
         while not self._stop_event.is_set():
+            # Check writer is available
+            if not self._writer:
+                break
+            
             # Read from all sources
             frames_list = []
             for wrapper in self._sources:
@@ -398,6 +410,9 @@ class AudioSession:
         
         # Drain remaining frames
         for _ in range(50):  # Brief drain period
+            if not self._writer:
+                break
+            
             frames_list = []
             for wrapper in self._sources:
                 frames = wrapper.read_and_process(timeout=0.01)
