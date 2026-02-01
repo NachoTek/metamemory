@@ -17,9 +17,9 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 1 of 6 (Audio Capture Foundation)
-Plan: 03 of 04 in current phase
-Status: In progress
-Last activity: 2026-02-01 - Completed 01-03-PLAN.md
+Plan: 04 of 04 in current phase (checkpoint reached)
+Status: In progress - awaiting manual verification
+Last activity: 2026-02-01 - Completed 01-04 auto tasks, checkpoint pending
 
 Progress: ████████░░ 37.5%
 
@@ -92,16 +92,21 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-01 | AudioSession consumer thread | Non-blocking frame processing with dedicated thread | Complete |
 | 2026-02-01 | soxr.ResampleStream for resampling | Streaming resampler for real-time audio processing | Complete |
 | 2026-02-01 | Mix sources by summing with clipping | Multiple audio sources mixed via float32 sum and clip | Complete |
+| 2026-02-01 | RecordingController pattern | UI-friendly wrapper around AudioSession | Complete |
+| 2026-02-01 | Non-blocking finalization | Worker thread prevents UI freeze during stop | Complete |
+| 2026-02-01 | Visual error indicator | Non-modal error display in widget | Complete |
+| 2026-02-01 | Startup recovery UX | QMessageBox prompt for partial recordings | Complete |
 
 ---
 
 ## Blockers
 
-None currently.
+- Manual verification pending for Phase 1 completion (30+ minute recording test)
 
 **Notes:**
 - System audio loopback capture interface defined but needs Windows Core Audio implementation
 - PortAudio WASAPI loopback symbol not exported in sounddevice binary
+- Widget UI complete, awaiting real device testing
 
 ---
 
