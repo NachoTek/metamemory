@@ -31,23 +31,26 @@ This phase establishes the foundation. Without reliable audio capture, nothing e
 - Streaming audio to disk for crash recovery
 - FakeAudioModule for test audio injection
 
-**Plans:** 8 plans (4 original + 4 gap closure)
+**Plans:** 10 plans (4 original + 6 gap closure)
 
 Plans:
 - [x] 01-01-PLAN.md - Audio storage + crash-safe streaming writer
 - [x] 01-02-PLAN.md - WASAPI capture backends + device probing + FakeAudioSource
 - [x] 01-03-PLAN.md - Recording session manager + automated fake-audio tests
 - [x] 01-04-PLAN.md - Widget wiring + crash recovery UX + manual verification
-- [ ] 01-05-PLAN.md - Fix FakeAudioModule endless looping
-- [ ] 01-06-PLAN.md - Fix widget double-click requirement
-- [ ] 01-07-PLAN.md - Verify widget lobes single-click (covered by 01-06)
-- [ ] 01-08-PLAN.md - Fix crash recovery false positive
+- [x] 01-05-PLAN.md - Fix FakeAudioModule endless looping
+- [x] 01-06-PLAN.md - Fix widget double-click requirement
+- [x] 01-07-PLAN.md - Verify widget lobes single-click (covered by 01-06)
+- [x] 01-08-PLAN.md - Fix crash recovery false positive
+- [x] 01-09-PLAN.md - Fix CLI fake duration cap
+- [x] 01-10-PLAN.md - Add widget drag surface
 
-**Status:** 🔄 Gap Closure (2026-02-01)
+**Status:** ✅ Complete (2026-02-01)
 - Original 4 plans complete and verified
 - UAT diagnosed 4 major gaps requiring fixes
-- 4 gap closure plans created to address diagnosed issues
-- Gap closure covers: fake audio looping, widget clicks, crash recovery false positives
+- 6 gap closure plans created to address diagnosed issues
+- Gap closure covers: fake audio looping, widget clicks, crash recovery false positives, CLI duration, widget drag
+- All 10 plans complete, all 7 UAT tests pass
 
 ---
 
