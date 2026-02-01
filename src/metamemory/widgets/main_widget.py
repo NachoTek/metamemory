@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsTextItem,
     QGraphicsWidget, QApplication
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QTime, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QBrush, QPen, QFont, QPainter, QLinearGradient
 
 from metamemory.recording import RecordingController, ControllerState, ControllerError
@@ -56,9 +56,10 @@ class MeetAndReadWidget(QGraphicsView):
         self.is_recording = False
         self.is_processing = False
         self.is_dragging = False
-        self.drag_start_pos = None
-        self.widget_start_pos = None
-        
+        self.drag_start_pos = QPoint()
+        self.widget_start_pos = QPoint()
+        self.press_time = QTime.currentTime()
+
         # Docking state
         self.is_docked = False
         self.dock_edge = None  # 'left', 'right', 'top', 'bottom'
@@ -145,20 +146,15 @@ class MeetAndReadWidget(QGraphicsView):
             self.record_button.set_swirl_phase(self.pulse_phase)
     
     def mousePressEvent(self, event):
-        """Start dragging."""
+        """Record press position for click vs drag detection."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Check if clicking on record button
-            scene_pos = self.mapToScene(event.pos())
-            items = self._scene.items(scene_pos)
-            
-            if any(isinstance(item, (RecordButtonItem, ToggleLobeItem, SettingsLobeItem)) 
-                   for item in items):
-                self.is_dragging = True
-                self.drag_start_pos = event.globalPosition().toPoint()
-                self.widget_start_pos = self.pos()
-                event.accept()
-            else:
-                super().mousePressEvent(event)
+            self.drag_start_pos = event.globalPosition().toPoint()
+            self.widget_start_pos = self.pos()
+            self.press_time = QTime.currentTime()
+            # DON'T accept - let events propagate to child items
+            super().mousePressEvent(event)
+        else:
+            super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
         """Handle dragging."""
@@ -174,11 +170,25 @@ class MeetAndReadWidget(QGraphicsView):
             super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
-        """End dragging and check for snap."""
-        if self.is_dragging:
-            self.is_dragging = False
-            self._check_snap_to_edge()
-            event.accept()
+        """Handle click (short duration, small movement) or end drag."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            release_pos = event.globalPosition().toPoint()
+            release_time = QTime.currentTime()
+
+            # Calculate movement distance and time elapsed
+            movement = (release_pos - self.drag_start_pos).manhattanLength()
+            elapsed_ms = self.press_time.msecsTo(release_time)
+
+            # Threshold: less than 5 pixels and less than 300ms = click, not drag
+            if movement < 5 and elapsed_ms < 300:
+                # This is a click - let child items handle it
+                # Don't start dragging, just pass through
+                super().mouseReleaseEvent(event)
+            else:
+                # This is a drag - finalize drag operation
+                self.is_dragging = False
+                self._check_snap_to_edge()
+                event.accept()
         else:
             super().mouseReleaseEvent(event)
     
