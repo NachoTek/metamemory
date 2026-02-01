@@ -20,6 +20,37 @@ from PyQt6.QtGui import QColor, QBrush, QPen, QFont, QPainter, QLinearGradient
 from metamemory.recording import RecordingController, ControllerState, ControllerError
 
 
+class DragSurfaceItem(QGraphicsRectItem):
+    """Invisible hit-testable background surface for drag initiation.
+    
+    Covers the entire widget scene rect to:
+    - Prevent click-through to underlying applications
+    - Provide a surface to initiate dragging from empty areas
+    - Stay behind all interactive controls (z-value -1000)
+    """
+    
+    def __init__(self, parent_widget):
+        super().__init__(0, 0, 200, 120)
+        self.parent_widget = parent_widget
+        
+        # No visible border
+        self.setPen(QPen(Qt.PenStyle.NoPen))
+        
+        # Near-invisible fill (alpha=1) - hit-testable but effectively transparent
+        self.setBrush(QBrush(QColor(0, 0, 0, 1)))
+        
+        # Stay behind all other items
+        self.setZValue(-1000)
+        
+        # Accept left mouse button for hit-testing
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+    
+    def paint(self, painter, option, widget):
+        """Override paint to render the near-invisible background."""
+        # Fill with near-transparent color to be hit-testable
+        painter.fillRect(self.rect(), self.brush())
+
+
 class MeetAndReadWidget(QGraphicsView):
     """
     Main application widget.
@@ -90,6 +121,10 @@ class MeetAndReadWidget(QGraphicsView):
     
     def _create_components(self):
         """Create all widget components."""
+        # Background drag surface (must be first to be behind everything)
+        self.drag_surface = DragSurfaceItem(self)
+        self._scene.addItem(self.drag_surface)
+        
         # Main record button
         self.record_button = RecordButtonItem(self)
         self._scene.addItem(self.record_button)
