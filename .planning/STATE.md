@@ -17,11 +17,11 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 2 of 6 (Real-Time Transcription Engine)
-Plan: 3 of 4 in current phase
-Status: In progress - Confidence & hardware detection complete
-Last activity: 2026-02-02 - Completed 02-03 confidence scoring & hardware detection
+Plan: 4 of 4 in current phase
+Status: Phase 2 Complete (pending human verification)
+Last activity: 2026-02-01 - Completed 02-04 Integration & UI wiring
 
-Progress: ████████░░░░ 18%
+Progress: ██████████░░ 20%
 
 ---
 
@@ -56,10 +56,10 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 - [✓] TRAN-01: Load Whisper model for real-time transcription (WhisperTranscriptionEngine complete)
 - [✓] TRAN-02: Chunk audio for < 2s transcription latency (VADChunkingProcessor with 1.0s min chunk)
 - [✓] TRAN-03: Extract confidence scores from transcription (confidence.py complete)
-- [○] TRAN-04: Color-code transcript by confidence (pending - needs 02-04 UI wiring)
+- [✓] TRAN-04: Color-code transcript by confidence (widget displays words with confidence colors)
 - [✓] TRAN-05: Continuous transcription without lag accumulation (AudioRingBuffer with trimming)
-- [○] TRAN-06: Format transcript for AI agent consumption (pending - needs 02-04)
-- [○] CFG-02: Select model size (tiny/base/small/medium/large) (settings implemented, needs UI)
+- [✓] TRAN-06: Format transcript for AI agent consumption (markdown export with timestamps)
+- [✓] CFG-02: Select model size (tiny/base/small) via settings panel UI
 - [✓] CFG-05: Display hardware capabilities (HardwareDetector complete)
 - [✓] CFG-06: Recommend model size based on hardware (ModelRecommender complete)
 - [✓] CFG-07: Settings persist across restarts (ConfigManager complete)
@@ -68,6 +68,7 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 - [✓] 02-01: Core transcription engine with faster-whisper, VAD chunking, local agreement buffer
 - [✓] 02-02: Settings persistence with JSON storage, versioning, smart defaults
 - [✓] 02-03: Confidence scoring & hardware detection with model recommendations
+- [✓] 02-04: Integration & UI wiring (streaming pipeline, widget display, settings panel)
 
 **Success Criteria:**
 1. ✅ User can start recording and capture clean audio from selected source(s)
@@ -116,6 +117,10 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-02 | Visual distortion effect | Linear 0.0-0.7 intensity for confidence 85%-0% | Complete |
 | 2026-02-02 | Model recommendation algorithm | <6GB/<4 cores→tiny, <12GB/<8 cores→base, else small | Complete |
 | 2026-02-02 | Hardware detection caching | 60-second TTL to avoid repeated psutil calls | Complete |
+| 2026-02-01 | Thread-safe queue pattern | queue.Queue for transcription results to UI | Complete |
+| 2026-02-01 | Graphics-based settings UI | Painted QGraphics items vs native widgets | Complete |
+| 2026-02-01 | Auto mode for model selection | Hardware-based default with manual override | Complete |
+| 2026-02-01 | Word-level transcript storage | Enables per-word confidence and future speaker ID | Complete |
 
 ---
 
@@ -124,22 +129,25 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 None currently.
 
 **Notes:**
-- System audio loopback requires Windows Core Audio implementation (planned for future phase)
+- Phase 2 complete - awaiting human verification checkpoint
+- System audio loopback requires Windows Core Audio implementation (planned for Phase 4)
 - PortAudio WASAPI loopback symbol not exported in sounddevice binary
-- Phase 2 Plans 1-3 complete, ready for Plan 4 (Integration & UI wiring)
 
 ---
 
 ## Next Actions
 
 **Immediate:**
-1. ✅ Phase 2 Plan 3 Complete - Confidence scoring & hardware detection
+1. ⏳ Phase 2 Complete - Awaiting human verification checkpoint
+   - Run application and verify transcript appears within 2s
+   - Verify confidence colors display correctly
+   - Test model selection in settings panel
+   - Confirm settings persist across restart
 
 **Ready to Start:**
-- Phase 2 Plan 4: Integration & UI wiring (streaming pipeline, widget display, settings panel)
+- Phase 3: Dual-Mode Enhancement Architecture (after checkpoint approval)
 
 **Upcoming:**
-- Phase 3: Dual-Mode Enhancement Architecture
 - Phase 4: Speaker Identification (includes Core Audio loopback completion)
 - Phase 5: Widget Interface & System Integration
 
@@ -150,8 +158,10 @@ None currently.
 
 ## Session Continuity
 
-Last session: 2026-02-02 01:38:22Z
-Stopped at: Completed 02-03-PLAN.md (Confidence & hardware detection)
-Resume file: None
+Last session: 2026-02-01 22:45:00Z
+Stopped at: Completed 02-04-PLAN.md (Integration & UI wiring) - Checkpoint reached
+Resume file: .planning/phases/02-real-time-transcription-engine/02-04-SUMMARY.md
+
+**Current Status:** Phase 2 complete, awaiting human verification. All 10 requirements implemented. Checkpoint verification needed before proceeding to Phase 3.
 
 *State file automatically updated throughout project lifecycle*
