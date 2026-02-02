@@ -240,6 +240,36 @@ class TestLocalAgreementBuffer:
         buffer.reset()
         assert buffer.get_committed() == ''
         assert buffer.get_pending() == ''
+    
+    def test_immediate_commit_threshold_one(self):
+        """Test that threshold=1 commits first transcription immediately.
+        
+        This is the critical fix for streaming audio scenarios. When using
+        threshold=1, the first transcription should be committed immediately
+        instead of returning an empty string.
+        
+        Before fix: First transcription always returned empty string regardless of threshold.
+        After fix: First transcription is committed immediately when threshold <= 1.
+        
+        Note: This specifically tests the first-chunk behavior. The local agreement
+        buffer is designed for static audio with repeated transcriptions. For streaming
+        mode, a buffer reset between chunks is recommended to handle completely
+        different text per chunk.
+        """
+        buffer = LocalAgreementBuffer(agreement_threshold=1)
+        
+        # First iteration with threshold=1 should commit immediately
+        result = buffer.process_iteration('Testing')
+        assert result == 'Testing', f"Expected 'Testing' but got '{result}'"
+        assert buffer.get_committed() == 'Testing'
+        
+        # Reset buffer to simulate streaming mode (new chunk = new buffer)
+        buffer.reset()
+        
+        # Next chunk with different text
+        result = buffer.process_iteration('one two')
+        assert result == 'one two', f"Expected 'one two' but got '{result}'"
+        assert buffer.get_committed() == 'one two'
 
 
 class TestWhisperTranscriptionEngine:
