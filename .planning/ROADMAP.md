@@ -83,13 +83,19 @@ Build the core transcription pipeline. Whisper integration requires model loadin
 
 **Plans:** 4 plans in 3 waves
 
+| Wave | Plans | Dependencies | Description |
+|------|-------|--------------|-------------|
+| 1 | 02-01, 02-02 | None | Core engine + Settings foundation |
+| 2 | 02-03 | 02-02 | Confidence + Hardware detection |
+| 3 | 02-04 | 02-01, 02-02, 02-03 | Integration + UI wiring (with checkpoint) |
+
 Plans:
-- [ ] 02-01-PLAN.md — Core transcription engine (faster-whisper, VAD chunking, local agreement)
+- [ ] 02-01-PLAN.md — Core transcription engine (faster-whisper, VAD chunking, local agreement buffer)
 - [ ] 02-02-PLAN.md — Settings persistence (JSON storage, versioning, smart defaults)
 - [ ] 02-03-PLAN.md — Confidence scoring & hardware detection (model recommendations)
-- [ ] 02-04-PLAN.md — Integration & UI wiring (streaming pipeline, widget display)
+- [ ] 02-04-PLAN.md — Integration & UI wiring (streaming pipeline, widget display, settings panel)
 
-**Status:** Planned (ready for execution)
+**Status:** ✅ Planned (ready for execution)
 
 ---
 
