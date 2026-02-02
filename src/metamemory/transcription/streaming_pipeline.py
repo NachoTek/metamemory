@@ -3,11 +3,13 @@
 Orchestrates all transcription components into a unified pipeline:
 - AudioRingBuffer: Thread-safe audio buffering
 - VADChunkingProcessor: Intelligent audio segmentation
-- WhisperTranscriptionEngine: Whisper model inference
+- WhisperTranscriptionEngine: Whisper model inference (whisper.cpp backend)
 - LocalAgreementBuffer: Prevents text flickering
 
 This class runs transcription in a background thread to avoid blocking
 the audio capture or UI threads.
+
+Compatible with whisper.cpp via pywhispercpp (CPU-only, no PyTorch DLLs).
 """
 
 import threading
