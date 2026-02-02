@@ -344,6 +344,10 @@ class RecordingController:
         # Get new results
         results = self._transcription_processor.get_results()
         
+        # DEBUG: Track results
+        if results:
+            print(f"DEBUG: Got {len(results)} transcription results")
+        
         if not results:
             return
         
@@ -385,6 +389,12 @@ class RecordingController:
         """
         if self._transcription_processor and self._state == ControllerState.RECORDING:
             self._transcription_processor.feed_audio(audio_chunk)
+            # DEBUG: Print every 100th chunk to verify audio is flowing
+            if not hasattr(self, '_feed_count'):
+                self._feed_count = 0
+            self._feed_count += 1
+            if self._feed_count % 100 == 0:
+                print(f"DEBUG: Fed {self._feed_count} audio chunks, last size: {len(audio_chunk)}")
     
     def _save_transcript(self) -> Optional[Path]:
         """Save transcript to file.

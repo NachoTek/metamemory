@@ -273,7 +273,9 @@ class RealTimeTranscriptionProcessor:
                 
                 # Run transcription (this is the slow part - 0.5-2s)
                 try:
+                    print(f"DEBUG: Transcribing chunk of {len(chunk_to_process)} samples...")
                     segments = self._engine.transcribe_chunk(chunk_to_process)
+                    print(f"DEBUG: Transcription returned {len(segments)} segments")
                     
                     # Process segments through agreement buffer
                     self._process_segments(segments, chunk_to_process)
@@ -310,6 +312,7 @@ class RealTimeTranscriptionProcessor:
         
         # Pass through agreement buffer to prevent flickering
         committed_text = self._agreement_buffer.process_iteration(full_text)
+        print(f"DEBUG: Agreement buffer committed: '{committed_text}'")
         
         if committed_text:
             # Calculate timing
