@@ -93,8 +93,7 @@ class RecordingController:
         self.on_transcript_update: Optional[Callable[[List[Word]], None]] = None
         self.on_word_received: Optional[Callable[[Word], None]] = None
         
-        # Audio frame callback reference
-        self._audio_frame_callback: Optional[Callable] = None
+
     
     def _set_state(self, state: ControllerState) -> None:
         """Update state and notify listeners."""
@@ -182,6 +181,9 @@ class RecordingController:
             
             # Create and start session
             config = SessionConfig(sources=source_configs)
+            # Wire audio callback to feed transcription processor
+            if self.enable_transcription:
+                config.on_audio_frame = self.feed_audio_for_transcription
             self._session = AudioSession()
             self._session.start(config)
             
@@ -310,9 +312,8 @@ class RecordingController:
     
     def _start_transcription_polling(self) -> None:
         """Start polling for transcription results."""
-        # Set up audio frame callback to feed transcription
-        # This would be wired to the audio session's consumer loop
-        # For now, we'll poll for results in a separate thread
+        # Audio frames are fed via on_audio_frame callback in SessionConfig
+        # Poll for transcription results in a separate thread
         self._transcription_poll_thread = threading.Thread(
             target=self._transcription_poll_loop,
             daemon=True,

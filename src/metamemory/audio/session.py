@@ -106,12 +106,15 @@ class SessionConfig:
             but discards them (does not write). This ensures deterministic
             bounded recordings even if sources emit faster than real-time.
             Calculated as: int(round(seconds * sample_rate))
+        on_audio_frame: Optional callback for mixed audio frames (float32).
+            Called from the consumer thread with each mixed audio chunk.
     """
     sources: List[SourceConfig] = field(default_factory=list)
     output_dir: Optional[Path] = None
     sample_rate: int = 16000
     channels: int = 1
     max_frames: Optional[int] = None
+    on_audio_frame: Optional[Callable[[np.ndarray], None]] = None
 
 
 @dataclass
@@ -411,6 +414,10 @@ class AudioSession:
 
             # Mix frames together
             mixed = self._mix_frames(frames_list)
+
+            # Feed to transcription callback (float32 audio before int16 conversion)
+            if self._config and self._config.on_audio_frame:
+                self._config.on_audio_frame(mixed)
 
             # Check max_frames cap
             if max_frames is not None and not discard_mode:
