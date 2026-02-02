@@ -98,7 +98,7 @@ class TestStreamingIntegration:
         
         # Create controller with transcription enabled
         controller = RecordingController(enable_transcription=True)
-        controller._config_manager.set_setting("output.recording_dir", str(output_dir))
+        controller._config_manager.set("output.recording_dir", str(output_dir))
         
         # Track received words
         received_words = []
@@ -190,7 +190,7 @@ class TestStreamingIntegration:
         output_dir.mkdir()
         
         controller = RecordingController(enable_transcription=True)
-        controller._config_manager.set_setting("output.recording_dir", str(output_dir))
+        controller._config_manager.set("output.recording_dir", str(output_dir))
         
         received_words = []
         controller.on_word_received = lambda w: received_words.append(w)
@@ -231,7 +231,7 @@ class TestStreamingIntegration:
         output_dir.mkdir()
         
         controller = RecordingController(enable_transcription=True)
-        controller._config_manager.set_setting("output.recording_dir", str(output_dir))
+        controller._config_manager.set("output.recording_dir", str(output_dir))
         
         # Track store state
         store_words = []
@@ -345,7 +345,7 @@ class TestStreamingIntegration:
         
         # Create controller with transcription DISABLED
         controller = RecordingController(enable_transcription=False)
-        controller._config_manager.set_setting("output.recording_dir", str(output_dir))
+        controller._config_manager.set("output.recording_dir", str(output_dir))
         
         words_received = []
         controller.on_word_received = lambda w: words_received.append(w)
@@ -454,8 +454,8 @@ class TestStreamingIntegrationWithRealAudio:
         output_dir.mkdir()
         
         controller = RecordingController(enable_transcription=True)
-        controller._config_manager.set_setting("output.recording_dir", str(output_dir))
-        controller._config_manager.set_setting("model.realtime_model_size", "tiny")
+        controller._config_manager.set("output.recording_dir", str(output_dir))
+        controller._config_manager.set("model.realtime_model_size", "tiny")
         
         words = []
         controller.on_word_received = lambda w: words.append(w)
