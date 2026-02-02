@@ -6,18 +6,21 @@ This widget provides a borderless, always-on-top interface with:
 - Toggle lobes for audio input selection
 - Transcript panel that expands from the widget
 - Drag and snap-to-edge functionality
+- Real-time transcription display with confidence colors
 """
 
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsTextItem,
-    QGraphicsWidget, QApplication
+    QGraphicsWidget, QApplication, QGraphicsItemGroup
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QTime, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QBrush, QPen, QFont, QPainter, QLinearGradient
 
 from metamemory.recording import RecordingController, ControllerState, ControllerError
+from metamemory.transcription.confidence import get_confidence_color, get_distortion_intensity
+from metamemory.transcription.transcript_store import Word
 
 
 class DragSurfaceItem(QGraphicsRectItem):
@@ -45,10 +48,192 @@ class DragSurfaceItem(QGraphicsRectItem):
         # Accept left mouse button for hit-testing
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
     
-    def paint(self, painter, option, widget):
+    def paint(self, painter, option, widget=None):
         """Override paint to render the near-invisible background."""
         # Fill with near-transparent color to be hit-testable
         painter.fillRect(self.rect(), self.brush())
+
+
+class TranscriptPanelItem(QGraphicsRectItem):
+    """Transcript panel that displays transcribed words with confidence colors."""
+    
+    def __init__(self, parent_widget):
+        super().__init__(0, 0, 300, 400)
+        self.parent_widget = parent_widget
+        self._words = []  # List of Word objects
+        self._auto_scroll = True
+        self._user_scrolling = False
+        self._visible = False
+        
+        # Panel styling
+        self.setBrush(QBrush(QColor(30, 30, 30, 230)))
+        self.setPen(QPen(QColor(100, 100, 100, 200), 2))
+        self.setZValue(100)
+        
+        # Text items for words
+        self._word_items = []
+        self._current_y = 10
+        self._max_height = 380
+        
+        # Auto-scroll resume timer
+        self._scroll_pause_timer = QTimer()
+        self._scroll_pause_timer.timeout.connect(self._resume_auto_scroll)
+    
+    def show_panel(self):
+        """Show the transcript panel."""
+        self._visible = True
+        self.show()
+        self.update()
+    
+    def hide_panel(self):
+        """Hide the transcript panel."""
+        self._visible = False
+        self.hide()
+    
+    def toggle_panel(self):
+        """Toggle panel visibility."""
+        if self._visible:
+            self.hide_panel()
+        else:
+            self.show_panel()
+    
+    def add_words(self, words):
+        """Add new words to the transcript display.
+        
+        Args:
+            words: List of Word objects
+        """
+        for word in words:
+            self._add_word_item(word)
+        
+        self._words.extend(words)
+        
+        if self._auto_scroll and self._visible:
+            self._scroll_to_bottom()
+        
+        self.update()
+    
+    def _add_word_item(self, word):
+        """Add a single word to the display."""
+        # Create text item
+        text_item = QGraphicsTextItem(word.text, self)
+        
+        # Set color based on confidence
+        color = self._get_word_color(word.confidence)
+        text_item.setDefaultTextColor(color)
+        
+        # Set font
+        font = QFont("Arial", 11)
+        if word.is_enhanced:
+            font.setBold(True)
+        text_item.setFont(font)
+        
+        # Position word
+        text_item.setPos(10, self._current_y)
+        
+        # Track word item
+        self._word_items.append({
+            'item': text_item,
+            'word': word,
+            'y': self._current_y
+        })
+        
+        # Update Y position
+        self._current_y += 20
+        
+        # Remove old words if exceeding max height
+        if self._current_y > self._max_height:
+            self._remove_oldest_words()
+    
+    def _remove_oldest_words(self):
+        """Remove oldest words to make room for new ones."""
+        # Remove first few words
+        remove_count = 5
+        for i in range(min(remove_count, len(self._word_items))):
+            item_data = self._word_items.pop(0)
+            self._scene.removeItem(item_data['item'])
+        
+        # Reposition remaining words
+        self._current_y = 10
+        for item_data in self._word_items:
+            item_data['item'].setPos(10, self._current_y)
+            item_data['y'] = self._current_y
+            self._current_y += 20
+    
+    def _get_word_color(self, confidence):
+        """Get color for word based on confidence score.
+        
+        Args:
+            confidence: Confidence score (0-100)
+        
+        Returns:
+            QColor for the word
+        """
+        hex_color = get_confidence_color(confidence)
+        # Convert hex to RGB
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        return QColor(r, g, b)
+    
+    def _scroll_to_bottom(self):
+        """Scroll to show latest words."""
+        # For now, just ensure we're showing the latest
+        # In a full implementation, this would scroll the view
+        pass
+    
+    def on_user_scroll(self):
+        """Called when user manually scrolls - pauses auto-scroll."""
+        self._auto_scroll = False
+        self._user_scrolling = True
+        
+        # Resume auto-scroll after 10 seconds
+        self._scroll_pause_timer.start(10000)
+    
+    def _resume_auto_scroll(self):
+        """Resume auto-scrolling after user pause."""
+        self._auto_scroll = True
+        self._user_scrolling = False
+        self._scroll_pause_timer.stop()
+    
+    def clear(self):
+        """Clear all transcript content."""
+        for item_data in self._word_items:
+            if item_data['item'].scene():
+                item_data['item'].scene().removeItem(item_data['item'])
+        
+        self._word_items = []
+        self._words = []
+        self._current_y = 10
+        self.update()
+    
+    def paint(self, painter, option, widget=None):
+        """Paint the panel background."""
+        if not self._visible:
+            return
+        
+        # Draw background
+        rect = self.rect()
+        painter.setBrush(self.brush())
+        painter.setPen(self.pen())
+        painter.drawRoundedRect(rect, 10, 10)
+        
+        # Draw header
+        header_rect = rect.adjusted(0, 0, 0, -rect.height() + 30)
+        gradient = QLinearGradient(header_rect.topLeft(), header_rect.bottomLeft())
+        gradient.setColorAt(0, QColor(50, 50, 50, 255))
+        gradient.setColorAt(1, QColor(40, 40, 40, 255))
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(header_rect, 10, 10)
+        painter.drawRect(header_rect.adjusted(0, 10, 0, 0))  # Fill bottom corners
+        
+        # Draw header text
+        painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
+        font = QFont("Arial", 10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(header_rect, Qt.AlignmentFlag.AlignCenter, "Transcript")
 
 
 class MeetAndReadWidget(QGraphicsView):
@@ -99,7 +284,14 @@ class MeetAndReadWidget(QGraphicsView):
         self._controller = RecordingController()
         self._controller.on_state_change = self._on_controller_state_change
         self._controller.on_error = self._on_controller_error
+        self._controller.on_word_received = self._on_word_received
+        self._controller.on_transcript_update = self._on_transcript_update
         self._error_indicator = None  # For showing errors
+        
+        # Transcript display
+        self._transcript_panel = None
+        self._transcript_words = []
+        self._auto_scroll = True
         
         # Create widget components
         self._create_components()
@@ -139,6 +331,11 @@ class MeetAndReadWidget(QGraphicsView):
         self.settings_lobe = SettingsLobeItem(self)
         self._scene.addItem(self.settings_lobe)
         
+        # Transcript panel (initially hidden)
+        self._transcript_panel = TranscriptPanelItem(self)
+        self._transcript_panel.hide_panel()
+        self._scene.addItem(self._transcript_panel)
+        
         # Error indicator (hidden by default)
         self._error_indicator = ErrorIndicatorItem(self)
         self._error_indicator.hide()
@@ -156,8 +353,39 @@ class MeetAndReadWidget(QGraphicsView):
         # Settings lobe on side
         self.settings_lobe.setPos(160, 50)
         
+        # Transcript panel flows out from widget
+        # Position depends on dock edge
+        self._update_transcript_panel_position()
+        
         # Error indicator at bottom
         self._error_indicator.setPos(10, 105)
+    
+    def _update_transcript_panel_position(self):
+        """Update transcript panel position based on widget state."""
+        if not self._transcript_panel:
+            return
+        
+        # Default position (flows out to the left)
+        panel_x = -310  # Panel width + margin
+        panel_y = -140  # Center vertically relative to widget
+        
+        # Adjust based on dock edge
+        if self.dock_edge == 'left':
+            # Widget docked to left, panel flows right
+            panel_x = 210
+        elif self.dock_edge == 'right':
+            # Widget docked to right, panel flows left
+            panel_x = -310
+        elif self.dock_edge == 'top':
+            # Widget at top, panel flows down
+            panel_x = -150
+            panel_y = 130
+        elif self.dock_edge == 'bottom':
+            # Widget at bottom, panel flows up
+            panel_x = -150
+            panel_y = -530
+        
+        self._transcript_panel.setPos(panel_x, panel_y)
     
     def _position_initial(self):
         """Position widget on screen initially."""
@@ -206,6 +434,7 @@ class MeetAndReadWidget(QGraphicsView):
             self.is_docked = False
             self.dock_edge = None
             self._update_docked_state()
+            self._update_transcript_panel_position()
             event.accept()
         elif event.buttons() == Qt.MouseButton.LeftButton and self._press_on_drag_surface:
             # Check if movement exceeds threshold to start dragging
@@ -220,6 +449,7 @@ class MeetAndReadWidget(QGraphicsView):
                 self.is_docked = False
                 self.dock_edge = None
                 self._update_docked_state()
+                self._update_transcript_panel_position()
                 event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -275,6 +505,7 @@ class MeetAndReadWidget(QGraphicsView):
             self.dock_edge = None
         
         self._update_docked_state()
+        self._update_transcript_panel_position()
     
     def _update_docked_state(self):
         """Update widget appearance based on docked state."""
@@ -313,16 +544,27 @@ class MeetAndReadWidget(QGraphicsView):
             self.is_processing = False
             self.record_button.set_recording_state(True)
             self._hide_error()
+            
+            # Show transcript panel when recording starts
+            if self._transcript_panel:
+                self._transcript_panel.clear()
+                self._transcript_panel.show_panel()
+            
         elif state == ControllerState.STOPPING:
             self.is_recording = False
             self.is_processing = True
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(True)
+            
         elif state == ControllerState.IDLE:
             self.is_recording = False
             self.is_processing = False
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(False)
+            
+            # Keep transcript panel visible for a bit after recording stops
+            # User can manually close it
+            
         elif state == ControllerState.ERROR:
             self.is_recording = False
             self.is_processing = False
@@ -334,11 +576,63 @@ class MeetAndReadWidget(QGraphicsView):
         self._show_error(error.message)
         print(f"Recording error: {error.message}")
     
-    def _on_recording_complete(self, wav_path):
+    def _on_recording_complete(self, wav_path, transcript_path):
         """Handle recording completion."""
         self.is_processing = False
         self.record_button.set_processing_state(False)
         print(f"Recording saved to: {wav_path}")
+        if transcript_path:
+            print(f"Transcript saved to: {transcript_path}")
+    
+    def _on_word_received(self, word):
+        """Handle individual word received from transcription.
+        
+        Args:
+            word: Word object with text and confidence
+        """
+        # Track word for display
+        self._transcript_words.append(word)
+        
+        # Add to transcript panel
+        if self._transcript_panel:
+            self._transcript_panel.add_words([word])
+    
+    def _on_transcript_update(self, words):
+        """Handle batch of new words from transcription.
+        
+        Args:
+            words: List of Word objects
+        """
+        # Batch update for efficiency
+        self._transcript_words.extend(words)
+        
+        if self._transcript_panel:
+            self._transcript_panel.add_words(words)
+    
+    def _format_word(self, word):
+        """Format word with confidence color information.
+        
+        Args:
+            word: Word object
+        
+        Returns:
+            Dict with formatting info for display
+        """
+        color = get_confidence_color(word.confidence)
+        distortion = get_distortion_intensity(word.confidence)
+        
+        return {
+            'text': word.text,
+            'color': color,
+            'confidence': word.confidence,
+            'distortion': distortion,
+            'is_enhanced': word.is_enhanced
+        }
+    
+    def toggle_transcript_panel(self):
+        """Toggle transcript panel visibility."""
+        if self._transcript_panel:
+            self._transcript_panel.toggle_panel()
     
     def toggle_recording(self):
         """Toggle recording state via controller."""
@@ -405,7 +699,7 @@ class RecordButtonItem(QGraphicsEllipseItem):
         self.swirl_phase = phase
         self.update()
     
-    def paint(self, painter, option, widget):
+    def paint(self, painter, option, widget=None):
         """Custom paint for glass effect and animations."""
         rect = self.rect()
         
@@ -511,7 +805,7 @@ class ToggleLobeItem(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
     
-    def paint(self, painter, option, widget):
+    def paint(self, painter, option, widget=None):
         """Paint the lobe."""
         rect = self.rect()
         
@@ -566,7 +860,7 @@ class SettingsLobeItem(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
     
-    def paint(self, painter, option, widget):
+    def paint(self, painter, option, widget=None):
         """Paint settings lobe."""
         rect = self.rect()
         
@@ -583,6 +877,7 @@ class SettingsLobeItem(QGraphicsEllipseItem):
     def mousePressEvent(self, event):
         """Open settings."""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Toggle settings panel or open settings dialog
             print("Settings clicked - dialog to be implemented")
             event.accept()
 
