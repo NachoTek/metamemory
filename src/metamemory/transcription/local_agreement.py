@@ -75,11 +75,18 @@ class LocalAgreementBuffer:
         Returns:
             Newly committed text (empty string if nothing new to commit)
         """
-        # First transcription - just store it
+        # First transcription - handle based on threshold
         if not self._buffer:
             self._buffer = new_transcription
-            self._agreement_count = 0
             self._stable_len = len(new_transcription)
+            # If threshold is 1, commit immediately (streaming mode)
+            if self.agreement_threshold <= 1:
+                self._agreement_count = 1
+                self._committed_text = new_transcription
+                self._last_commit_len = len(new_transcription)
+                return new_transcription
+            # Otherwise, wait for confirmation (static audio mode)
+            self._agreement_count = 0
             return ""
         
         # Find common prefix
