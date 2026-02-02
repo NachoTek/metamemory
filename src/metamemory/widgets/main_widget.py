@@ -21,6 +21,8 @@ from PyQt6.QtGui import QColor, QBrush, QPen, QFont, QPainter, QLinearGradient
 from metamemory.recording import RecordingController, ControllerState, ControllerError
 from metamemory.transcription.confidence import get_confidence_color, get_distortion_intensity
 from metamemory.transcription.transcript_store import Word
+from metamemory.config import get_config, set_config, save_config, AppSettings
+from metamemory.hardware.recommender import ModelRecommender, get_model_info
 
 
 class DragSurfaceItem(QGraphicsRectItem):
@@ -236,6 +238,228 @@ class TranscriptPanelItem(QGraphicsRectItem):
         painter.drawText(header_rect, Qt.AlignmentFlag.AlignCenter, "Transcript")
 
 
+class SettingsPanelItem(QGraphicsRectItem):
+    """Settings panel for model selection and configuration."""
+    
+    def __init__(self, parent_widget):
+        super().__init__(0, 0, 250, 200)
+        self.parent_widget = parent_widget
+        self._visible = False
+        self._current_model = "auto"
+        self._recommended_model = ""
+        
+        # Panel styling
+        self.setBrush(QBrush(QColor(30, 30, 30, 240)))
+        self.setPen(QPen(QColor(100, 100, 100, 200), 2))
+        self.setZValue(100)
+        
+        # Load current settings
+        self._load_settings()
+    
+    def _load_settings(self):
+        """Load current settings from config."""
+        try:
+            settings = get_config()
+            self._current_model = settings.model.realtime_model_size
+            self._recommended_model = settings.hardware.recommended_model or ""
+        except Exception:
+            self._current_model = "auto"
+            self._recommended_model = ""
+    
+    def show_panel(self):
+        """Show the settings panel."""
+        self._visible = True
+        self.show()
+        self._load_settings()
+        self.update()
+    
+    def hide_panel(self):
+        """Hide the settings panel."""
+        self._visible = False
+        self.hide()
+    
+    def toggle_panel(self):
+        """Toggle panel visibility."""
+        if self._visible:
+            self.hide_panel()
+        else:
+            self.show_panel()
+    
+    def is_visible(self):
+        """Check if panel is visible."""
+        return self._visible
+    
+    def set_model_size(self, model_size):
+        """Set the model size and save to config.
+        
+        Args:
+            model_size: Model size string ("tiny", "base", "small", "auto")
+        """
+        try:
+            set_config("model.realtime_model_size", model_size)
+            
+            # If user selects a specific model, also save as override
+            if model_size != "auto":
+                set_config("hardware.user_override_model", model_size)
+            else:
+                # Clear override if going back to auto
+                set_config("hardware.user_override_model", None)
+            
+            save_config()
+            self._current_model = model_size
+            self.update()
+        except Exception as e:
+            print(f"Failed to save model setting: {e}")
+    
+    def get_recommended_display(self):
+        """Get display text for hardware recommendation."""
+        if self._recommended_model:
+            model_info = get_model_info(self._recommended_model)
+            return f"Recommended: {self._recommended_model} ({model_info.accuracy_rating})"
+        return "Hardware detection pending"
+    
+    def mousePressEvent(self, event):
+        """Handle clicks on model selection buttons."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        
+        pos = event.pos()
+        x, y = pos.x(), pos.y()
+        
+        # Check which button was clicked
+        # Button layout: tiny, base, small in rows
+        button_y_start = 70
+        button_height = 35
+        button_spacing = 5
+        
+        # Tiny button
+        if button_y_start <= y < button_y_start + button_height:
+            if 10 <= x <= 80:
+                self.set_model_size("tiny")
+            elif 90 <= x <= 160:
+                self.set_model_size("base")
+            elif 170 <= x <= 240:
+                self.set_model_size("small")
+        
+        # Auto button
+        auto_y = button_y_start + button_height + button_spacing + 10
+        if auto_y <= y < auto_y + button_height:
+            if 10 <= x <= 120:
+                self.set_model_size("auto")
+        
+        event.accept()
+    
+    def paint(self, painter, option, widget=None):
+        """Paint the settings panel."""
+        if not self._visible:
+            return
+        
+        rect = self.rect()
+        
+        # Draw background
+        painter.setBrush(self.brush())
+        painter.setPen(self.pen())
+        painter.drawRoundedRect(rect, 10, 10)
+        
+        # Draw header
+        header_rect = rect.adjusted(0, 0, 0, -rect.height() + 30)
+        gradient = QLinearGradient(header_rect.topLeft(), header_rect.bottomLeft())
+        gradient.setColorAt(0, QColor(50, 50, 50, 255))
+        gradient.setColorAt(1, QColor(40, 40, 40, 255))
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(header_rect, 10, 10)
+        painter.drawRect(header_rect.adjusted(0, 10, 0, 0))
+        
+        # Draw header text
+        painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
+        font = QFont("Arial", 10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(header_rect, Qt.AlignmentFlag.AlignCenter, "Settings")
+        
+        # Draw model selection label
+        painter.setPen(QPen(QColor(200, 200, 200, 255), 1))
+        font = QFont("Arial", 9)
+        painter.setFont(font)
+        painter.drawText(10, 45, "Transcription Model:")
+        
+        # Draw recommendation
+        if self._recommended_model:
+            rec_text = f"Recommended: {self._recommended_model}"
+            painter.setPen(QPen(QColor(150, 255, 150, 255), 1))
+            painter.drawText(10, 60, rec_text)
+        
+        # Draw model selection buttons
+        button_y = 70
+        button_height = 35
+        button_width = 70
+        button_spacing = 10
+        
+        models = [
+            ("tiny", "Fastest"),
+            ("base", "Balanced"),
+            ("small", "Best")
+        ]
+        
+        for i, (model, label) in enumerate(models):
+            x = 10 + i * (button_width + button_spacing)
+            is_selected = self._current_model == model
+            
+            # Button background
+            if is_selected:
+                painter.setBrush(QBrush(QColor(100, 150, 255, 200)))
+                painter.setPen(QPen(QColor(150, 200, 255, 255), 2))
+            else:
+                painter.setBrush(QBrush(QColor(60, 60, 60, 200)))
+                painter.setPen(QPen(QColor(100, 100, 100, 255), 1))
+            
+            painter.drawRoundedRect(x, button_y, button_width, button_height, 5, 5)
+            
+            # Button text
+            if is_selected:
+                painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
+            else:
+                painter.setPen(QPen(QColor(200, 200, 200, 255), 1))
+            
+            painter.drawText(
+                QRectF(x, button_y, button_width, button_height),
+                Qt.AlignmentFlag.AlignCenter,
+                model.upper()
+            )
+        
+        # Draw "Auto" button
+        auto_y = button_y + button_height + 15
+        is_auto = self._current_model == "auto"
+        
+        if is_auto:
+            painter.setBrush(QBrush(QColor(100, 200, 100, 200)))
+            painter.setPen(QPen(QColor(150, 255, 150, 255), 2))
+        else:
+            painter.setBrush(QBrush(QColor(60, 60, 60, 200)))
+            painter.setPen(QPen(QColor(100, 100, 100, 255), 1))
+        
+        painter.drawRoundedRect(10, auto_y, 110, button_height, 5, 5)
+        
+        if is_auto:
+            painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
+        else:
+            painter.setPen(QPen(QColor(200, 200, 200, 255), 1))
+        
+        painter.drawText(
+            QRectF(10, auto_y, 110, button_height),
+            Qt.AlignmentFlag.AlignCenter,
+            "AUTO"
+        )
+        
+        # Draw help text
+        painter.setPen(QPen(QColor(150, 150, 150, 255), 1))
+        font = QFont("Arial", 8)
+        painter.setFont(font)
+        help_text = "Smaller = faster, larger = more accurate"
+        painter.drawText(10, auto_y + button_height + 15, help_text)
+
+
 class MeetAndReadWidget(QGraphicsView):
     """
     Main application widget.
@@ -336,6 +560,11 @@ class MeetAndReadWidget(QGraphicsView):
         self._transcript_panel.hide_panel()
         self._scene.addItem(self._transcript_panel)
         
+        # Settings panel (initially hidden)
+        self._settings_panel = SettingsPanelItem(self)
+        self._settings_panel.hide_panel()
+        self._scene.addItem(self._settings_panel)
+        
         # Error indicator (hidden by default)
         self._error_indicator = ErrorIndicatorItem(self)
         self._error_indicator.hide()
@@ -435,6 +664,7 @@ class MeetAndReadWidget(QGraphicsView):
             self.dock_edge = None
             self._update_docked_state()
             self._update_transcript_panel_position()
+            self._update_settings_panel_position()
             event.accept()
         elif event.buttons() == Qt.MouseButton.LeftButton and self._press_on_drag_surface:
             # Check if movement exceeds threshold to start dragging
@@ -450,6 +680,7 @@ class MeetAndReadWidget(QGraphicsView):
                 self.dock_edge = None
                 self._update_docked_state()
                 self._update_transcript_panel_position()
+                self._update_settings_panel_position()
                 event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -506,6 +737,7 @@ class MeetAndReadWidget(QGraphicsView):
         
         self._update_docked_state()
         self._update_transcript_panel_position()
+        self._update_settings_panel_position()
     
     def _update_docked_state(self):
         """Update widget appearance based on docked state."""
@@ -633,6 +865,35 @@ class MeetAndReadWidget(QGraphicsView):
         """Toggle transcript panel visibility."""
         if self._transcript_panel:
             self._transcript_panel.toggle_panel()
+    
+    def _toggle_settings_panel(self):
+        """Toggle settings panel visibility."""
+        if self._settings_panel:
+            self._settings_panel.toggle_panel()
+            # Update position when showing
+            if self._settings_panel.is_visible():
+                self._update_settings_panel_position()
+    
+    def _update_settings_panel_position(self):
+        """Update settings panel position based on widget state."""
+        if not self._settings_panel:
+            return
+        
+        # Position flows out from settings lobe
+        panel_x = 190  # To the right of settings lobe
+        panel_y = 30
+        
+        # Adjust based on dock edge
+        if self.dock_edge == 'right':
+            panel_x = -260  # Flow left
+        elif self.dock_edge == 'left':
+            panel_x = 190  # Flow right
+        elif self.dock_edge == 'top':
+            panel_y = 130  # Flow down
+        elif self.dock_edge == 'bottom':
+            panel_y = -220  # Flow up
+        
+        self._settings_panel.setPos(panel_x, panel_y)
     
     def toggle_recording(self):
         """Toggle recording state via controller."""
@@ -877,8 +1138,8 @@ class SettingsLobeItem(QGraphicsEllipseItem):
     def mousePressEvent(self, event):
         """Open settings."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Toggle settings panel or open settings dialog
-            print("Settings clicked - dialog to be implemented")
+            # Toggle settings panel
+            self.parent_widget._toggle_settings_panel()
             event.accept()
 
 

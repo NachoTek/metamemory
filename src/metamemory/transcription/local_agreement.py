@@ -105,10 +105,16 @@ class LocalAgreementBuffer:
             # This ensures we only commit what was stable BEFORE this match
         else:
             # Content diverged (common prefix shorter than buffer)
-            # Roll back to common prefix and reset agreement
+            # Roll back buffer to common prefix
             self._buffer = common
             self._agreement_count = 1
+            # stable_len can only be as long as the common prefix now
             self._stable_len = len(common)
+            # If buffer is now shorter than what we committed, we need to
+            # adjust our tracking - but we don't un-commit text (user already saw it)
+            # Just ensure last_commit_len doesn't exceed buffer length
+            if self._last_commit_len > len(common):
+                self._last_commit_len = len(common)
         
         # Check if we can commit new content
         # We can only commit content that is both:
