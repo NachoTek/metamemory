@@ -14,6 +14,9 @@ Uses synthetic and real audio samples to verify:
 - Transcript file is saved on stop
 - No lag accumulation (timestamps are reasonable)
 - Model switching works correctly
+
+Note: Uses whisper.cpp backend (via pywhispercpp) - CPU-only, no PyTorch.
+Models are downloaded as .bin files from HuggingFace.
 """
 
 import sys

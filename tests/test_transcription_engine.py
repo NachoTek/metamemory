@@ -4,6 +4,9 @@ Tests the full pipeline: AudioRingBuffer -> VADChunkingProcessor ->
 WhisperTranscriptionEngine -> LocalAgreementBuffer.
 
 Uses FakeAudioModule to provide deterministic audio for testing.
+
+Note: WhisperTranscriptionEngine now uses whisper.cpp (via pywhispercpp)
+instead of faster-whisper. Models are downloaded as .bin files.
 """
 
 import sys
@@ -273,12 +276,22 @@ class TestWhisperTranscriptionEngine:
         assert info['device'] == 'cpu'
         assert not info['loaded']
     
+    def test_model_info_whisper_cpp_backend(self):
+        """Test that model info reports whisper.cpp backend."""
+        engine = WhisperTranscriptionEngine(model_size='tiny')
+        info = engine.get_model_info()
+        
+        assert info['backend'] == 'whisper.cpp'
+        assert info['model_size'] == 'tiny'
+    
     @pytest.mark.slow
     def test_model_loading_and_transcription(self):
         """Test actual model loading and transcription.
         
         This test is marked as slow because it downloads and loads the model.
         Run with: pytest -m slow
+        
+        Note: First run will download the .bin model file (~40MB for tiny).
         """
         engine = WhisperTranscriptionEngine(model_size='tiny')
         engine.load_model()
@@ -286,7 +299,7 @@ class TestWhisperTranscriptionEngine:
         assert engine.is_model_loaded()
         
         # Create 2 seconds of silence (not ideal for transcription,
-        # but faster-whisper with VAD should handle it gracefully)
+        # but whisper.cpp should handle it gracefully)
         audio = np.zeros(16000 * 2, dtype=np.float32)
         
         # Should not raise an error
