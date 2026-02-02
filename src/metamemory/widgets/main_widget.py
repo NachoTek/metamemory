@@ -779,8 +779,11 @@ class MeetAndReadWidget(QGraphicsView):
             
             # Show transcript panel when recording starts
             if self._transcript_panel:
+                print("DEBUG: Showing transcript panel")
                 self._transcript_panel.clear()
                 self._transcript_panel.show_panel()
+            else:
+                print("DEBUG: No transcript panel to show!")
             
         elif state == ControllerState.STOPPING:
             self.is_recording = False
@@ -822,12 +825,17 @@ class MeetAndReadWidget(QGraphicsView):
         Args:
             word: Word object with text and confidence
         """
+        print(f"DEBUG: Word received: '{word.text}' (confidence: {word.confidence})")
+        
         # Track word for display
         self._transcript_words.append(word)
         
         # Add to transcript panel
         if self._transcript_panel:
             self._transcript_panel.add_words([word])
+            print(f"DEBUG: Added word to panel, panel now has {len(self._transcript_panel._words)} words")
+        else:
+            print("DEBUG: No panel to add word to!")
     
     def _on_transcript_update(self, words):
         """Handle batch of new words from transcription.
