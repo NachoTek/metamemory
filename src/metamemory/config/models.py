@@ -66,7 +66,7 @@ class TranscriptionSettings:
         metadata={"description": "Confidence threshold for enhancement trigger (0.0-1.0)"}
     )
     min_chunk_size_sec: float = field(
-        default=1.0,
+        default=0.5,  # Reduced from 1.0s for lower latency (target < 2s total)
         metadata={"description": "Minimum audio chunk size in seconds"}
     )
     agreement_threshold: int = field(

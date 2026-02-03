@@ -57,10 +57,16 @@ MODEL_SPECS = {
 def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> str:
     """Recommend Whisper model size based on hardware specs.
     
-    Recommendation algorithm from RESEARCH.md:
-    - If RAM < 6GB OR CPU < 4 cores: recommend "tiny"
-    - If RAM < 12GB OR CPU < 8 cores: recommend "base"
-    - Otherwise: recommend "small"
+    Recommendation algorithm optimized for real-time transcription (< 2s latency):
+    - For real-time: Always recommend "tiny" (fastest, ~0.5-1s latency)
+    - For post-processing: Can use larger models (base/small)
+    
+    Current approach prioritizes real-time performance over accuracy:
+    - If RAM < 6GB OR CPU < 4 cores: recommend "tiny" (required for low-end)
+    - Otherwise: recommend "tiny" (for < 2s latency target)
+    
+    NOTE: Dual-mode architecture (Phase 3) will use tiny for real-time
+    and larger models for post-recording enhancement.
     
     Args:
         specs: System hardware specifications
@@ -85,16 +91,14 @@ def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> s
         >>> recommend_model_size(specs2)
         'tiny'
     """
-    # Check for tiny recommendation (low-end hardware)
+    # For real-time transcription, always use tiny for < 2s latency
+    # Larger models (base/small) can be used for post-processing enhancement
     if specs.total_ram_gb < 6.0 or specs.cpu_count_logical < 4:
         return "tiny"
     
-    # Check for base recommendation (mid-range hardware)
-    if specs.total_ram_gb < 12.0 or specs.cpu_count_logical < 8:
-        return "base"
-    
-    # Default to small for high-end hardware
-    return "small"
+    # Even on high-end hardware, use tiny for real-time
+    # Dual-mode will use larger models for enhancement after recording
+    return "tiny"
 
 
 def get_model_info(size: str) -> ModelInfo:
