@@ -11,6 +11,7 @@ Provides the core transcription pipeline:
 - PostProcessingQueue: Background enhancement after recording stops
 - TranscriptStore: Word-level storage with confidence for UI color coding
 - Confidence scoring and color coding for visual feedback
+- AccumulatingTranscriptionProcessor: Accumulating audio processor for meetings
 
 Uses whisper.cpp via pywhispercpp for CPU-only operation without PyTorch DLL dependencies.
 """
@@ -43,6 +44,10 @@ from metamemory.transcription.transcript_store import (
     Word,
     Segment,
 )
+from metamemory.transcription.accumulating_processor import (
+    AccumulatingTranscriptionProcessor,
+    PhraseResult,
+)
 
 __all__ = [
     # Core components
@@ -59,6 +64,9 @@ __all__ = [
     "TranscriptStore",
     "Word",
     "Segment",
+    # Accumulating processor (for meetings)
+    "AccumulatingTranscriptionProcessor",
+    "PhraseResult",
     # Confidence scoring
     "normalize_confidence",
     "get_confidence_level",

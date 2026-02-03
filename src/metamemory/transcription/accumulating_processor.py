@@ -1,12 +1,18 @@
 """
 Proper real-time transcription implementation matching whisper_real_time reference.
 
-Key differences from our current approach:
+Key differences from previous approach:
 1. Accumulate audio over time (not chunk-by-chunk isolation)
 2. Re-transcribe accumulated buffer for context continuity
 3. Detect phrase breaks via timeout (3s silence)
 4. Update display in-place (edit current line, don't add new items)
 5. Confidence calculated per phrase (not per chunk)
+6. 60-second window for good meeting context
+
+This implementation is optimized for meetings and calls:
+- 60s window provides enough context for accurate transcription
+- 2s update frequency is responsive without overwhelming the CPU
+- 3s silence detection for natural turn-taking
 """
 
 import time
@@ -36,33 +42,45 @@ class AccumulatingTranscriptionProcessor:
     Architecture (matching whisper_real_time reference):
     1. Audio captured continuously
     2. Accumulated in buffer (phrase_bytes)
-    3. Every N seconds or on silence timeout, transcribe accumulated audio
+    3. Every 2 seconds or on 3s silence, transcribe accumulated audio
     4. Display updates in-place (current phrase edited, not new items added)
     5. After 3s silence, start new phrase
+    
+    Configuration for meetings:
+    - window_size: 60 seconds (configurable, default for good context)
+    - update_frequency: 2 seconds (responsive updates)
+    - silence_timeout: 3 seconds (natural turn-taking)
     
     This provides:
     - Better accuracy (context from accumulated audio)
     - Lower latency (only transcribe when needed, not every chunk)
     - Natural phrase breaks (based on silence detection)
+    - Meets < 2s latency requirement for Phase 2
     """
     
     def __init__(
         self,
         model_size: str = "tiny",
-        record_timeout: float = 2.0,  # How often to check/transcribe
-        phrase_timeout: float = 3.0,  # Silence duration to consider phrase complete
+        window_size: float = 60.0,  # 60s buffer for good meeting context
+        update_frequency: float = 2.0,  # Update every 2 seconds
+        silence_timeout: float = 3.0,  # 3s silence = phrase complete
     ):
         """
         Initialize the accumulating transcription processor.
         
         Args:
             model_size: Whisper model size ("tiny", "base", "small")
-            record_timeout: How often to run transcription (seconds)
-            phrase_timeout: Silence duration before considering phrase complete (seconds)
+            window_size: Maximum audio buffer size in seconds (default 60s)
+            update_frequency: How often to run transcription (seconds)
+            silence_timeout: Silence duration before considering phrase complete (seconds)
         """
         self.model_size = model_size
-        self.record_timeout = record_timeout
-        self.phrase_timeout = phrase_timeout
+        self.window_size = window_size
+        self.update_frequency = update_frequency
+        self.silence_timeout = silence_timeout
+        
+        # Maximum bytes in buffer (16kHz, 16-bit = 2 bytes per sample)
+        self._max_buffer_bytes = int(window_size * 16000 * 2)
         
         # Accumulated audio buffer (raw bytes)
         self._phrase_bytes = bytes()
@@ -81,60 +99,73 @@ class AccumulatingTranscriptionProcessor:
         # Timing
         self._last_audio_time: Optional[datetime] = None
         self._recording_start_time: Optional[datetime] = None
+        self._last_update_time: Optional[datetime] = None
         
         # Callbacks
         self.on_result: Optional[Callable[[PhraseResult], None]] = None
+        
+        # Debug counters
+        self._audio_chunks_fed = 0
+        self._total_samples_processed = 0
+        self._transcription_count = 0
     
     def load_model(self, progress_callback: Optional[Callable[[int], None]] = None) -> None:
         """Load the Whisper model."""
         from metamemory.transcription.engine import WhisperTranscriptionEngine
         
-        print(f"Loading {self.model_size} model...")
+        print(f"DEBUG: Loading {self.model_size} model for accumulating transcription...")
         self._engine = WhisperTranscriptionEngine(
             model_size=self.model_size,
             device="cpu",
             compute_type="int8"
         )
         self._engine.load_model(progress_callback=progress_callback)
-        print(f"✓ Model loaded")
+        print(f"DEBUG: Model loaded successfully")
     
     def start(self) -> None:
         """Start the transcription processing loop."""
         if self._is_running:
+            print("DEBUG: Processor already running")
             return
         
         self._is_running = True
         self._stop_event.clear()
         self._recording_start_time = datetime.utcnow()
         self._last_audio_time = None
+        self._last_update_time = None
         self._phrase_bytes = bytes()
+        self._audio_chunks_fed = 0
+        self._total_samples_processed = 0
+        self._transcription_count = 0
         
         # Start processing thread
         self._processing_thread = threading.Thread(
             target=self._processing_loop,
             daemon=True,
-            name="TranscriptionProcessor"
+            name="AccumulatingTranscriptionProcessor"
         )
         self._processing_thread.start()
-        print("✓ Transcription processor started")
+        print("DEBUG: Accumulating transcription processor started")
+        print(f"DEBUG: Window size: {self.window_size}s, Update frequency: {self.update_frequency}s, Silence timeout: {self.silence_timeout}s")
     
     def stop(self) -> None:
         """Stop the transcription processor."""
         if not self._is_running:
             return
         
+        print("DEBUG: Stopping accumulating transcription processor...")
         self._is_running = False
         self._stop_event.set()
         
         # Process any remaining audio
         if self._phrase_bytes:
-            print("Processing final phrase...")
+            print(f"DEBUG: Processing final phrase ({len(self._phrase_bytes)} bytes)...")
             self._transcribe_accumulated(force_complete=True)
         
         if self._processing_thread:
             self._processing_thread.join(timeout=5.0)
         
-        print("✓ Transcription processor stopped")
+        print(f"DEBUG: Processor stopped. Total transcriptions: {self._transcription_count}, Total audio chunks: {self._audio_chunks_fed}")
     
     def feed_audio(self, audio_chunk: np.ndarray) -> None:
         """
@@ -146,15 +177,33 @@ class AccumulatingTranscriptionProcessor:
         # Convert float32 to int16 bytes (what whisper.cpp expects)
         if audio_chunk.dtype == np.float32:
             audio_int16 = (audio_chunk * 32767).astype(np.int16)
+        elif audio_chunk.dtype == np.int16:
+            audio_int16 = audio_chunk
         else:
             audio_int16 = audio_chunk.astype(np.int16)
         
         # Add to accumulated buffer
-        self._phrase_bytes += audio_int16.tobytes()
+        chunk_bytes = audio_int16.tobytes()
+        self._phrase_bytes += chunk_bytes
         self._last_audio_time = datetime.utcnow()
+        self._audio_chunks_fed += 1
+        self._total_samples_processed += len(audio_chunk)
+        
+        # Debug: log every 50 chunks and every 10 seconds of audio
+        if self._audio_chunks_fed % 50 == 0:
+            buffer_duration = len(self._phrase_bytes) / (16000 * 2)  # bytes / (samples/sec * bytes/sample)
+            print(f"DEBUG: Fed audio chunk #{self._audio_chunks_fed}: {len(audio_chunk)} samples, buffer: {buffer_duration:.1f}s")
+        
+        # Trim buffer if it exceeds window size (keep most recent audio)
+        if len(self._phrase_bytes) > self._max_buffer_bytes:
+            excess = len(self._phrase_bytes) - self._max_buffer_bytes
+            self._phrase_bytes = self._phrase_bytes[excess:]
+            print(f"DEBUG: Trimmed buffer to maintain {self.window_size}s window")
     
     def _processing_loop(self) -> None:
         """Main processing loop - runs in background thread."""
+        print("DEBUG: Processing loop started")
+        
         while self._is_running and not self._stop_event.is_set():
             try:
                 now = datetime.utcnow()
@@ -165,32 +214,42 @@ class AccumulatingTranscriptionProcessor:
                 
                 if self._phrase_bytes and self._last_audio_time:
                     time_since_audio = (now - self._last_audio_time).total_seconds()
+                    time_since_update = (now - self._last_update_time).total_seconds() if self._last_update_time else float('inf')
+                    buffer_duration = len(self._phrase_bytes) / (16000 * 2)  # seconds of audio in buffer
                     
                     # Transcribe if:
-                    # 1. We have audio and record_timeout has passed, OR
-                    # 2. Phrase timeout (3s silence) has passed
-                    if time_since_audio >= self.phrase_timeout:
+                    # 1. Silence timeout reached (phrase complete)
+                    # 2. Update frequency reached and we have enough audio (> 0.5s)
+                    if time_since_audio >= self.silence_timeout:
                         # Silence detected - phrase is complete
                         should_transcribe = True
                         phrase_complete = True
-                    elif len(self._phrase_bytes) >= int(self.record_timeout * 16000 * 2):  # 2 bytes per int16
-                        # Record timeout reached - transcribe but continue phrase
+                        print(f"DEBUG: Silence detected ({time_since_audio:.1f}s), finalizing phrase")
+                    elif time_since_update >= self.update_frequency and buffer_duration >= 0.5:
+                        # Update frequency reached - transcribe but continue phrase
                         should_transcribe = True
                         phrase_complete = False
+                        print(f"DEBUG: Update frequency reached ({time_since_update:.1f}s), transcribing {buffer_duration:.1f}s buffer")
                 
                 if should_transcribe and self._engine:
                     self._transcribe_accumulated(phrase_complete)
+                    self._last_update_time = now
                     
                     if phrase_complete:
                         # Clear buffer for next phrase
+                        print("DEBUG: Starting new phrase after silence")
                         self._phrase_bytes = bytes()
                 
-                # Sleep to prevent CPU spinning
-                time.sleep(0.25)
+                # Sleep to prevent CPU spinning (check every 100ms)
+                time.sleep(0.1)
                 
             except Exception as e:
-                print(f"Transcription loop error: {e}")
+                print(f"ERROR: Transcription loop error: {e}")
+                import traceback
+                traceback.print_exc()
                 time.sleep(0.5)
+        
+        print("DEBUG: Processing loop ended")
     
     def _transcribe_accumulated(self, force_complete: bool = False) -> None:
         """
@@ -203,6 +262,9 @@ class AccumulatingTranscriptionProcessor:
             return
         
         try:
+            buffer_duration = len(self._phrase_bytes) / (16000 * 2)
+            print(f"DEBUG: Transcribing {buffer_duration:.1f}s accumulated audio...")
+            
             # Convert bytes to numpy array
             audio_np = np.frombuffer(self._phrase_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             
@@ -210,6 +272,8 @@ class AccumulatingTranscriptionProcessor:
             start_time = time.time()
             segments = self._engine.transcribe_chunk(audio_np)
             transcribe_time = time.time() - start_time
+            
+            self._transcription_count += 1
             
             if segments:
                 # Combine all segments
@@ -220,12 +284,11 @@ class AccumulatingTranscriptionProcessor:
                 
                 # Calculate timing
                 elapsed = (datetime.utcnow() - self._recording_start_time).total_seconds() if self._recording_start_time else 0
-                chunk_duration = len(audio_np) / 16000
                 
                 result = PhraseResult(
                     text=full_text,
                     confidence=int(avg_confidence),
-                    start_time=elapsed - chunk_duration,
+                    start_time=elapsed - buffer_duration,
                     end_time=elapsed,
                     is_complete=force_complete
                 )
@@ -235,12 +298,19 @@ class AccumulatingTranscriptionProcessor:
                 
                 # Callback
                 if self.on_result:
-                    self.on_result(result)
+                    try:
+                        self.on_result(result)
+                    except Exception as e:
+                        print(f"ERROR: on_result callback failed: {e}")
                 
-                print(f"Transcribed ({transcribe_time:.2f}s): '{full_text[:50]}...' [conf: {result.confidence}]")
+                print(f"DEBUG: Transcribed ({transcribe_time:.2f}s): '{full_text[:60]}{'...' if len(full_text) > 60 else ''}' [conf: {result.confidence}%, complete: {force_complete}]")
+            else:
+                print(f"DEBUG: No transcription result for {buffer_duration:.1f}s of audio")
                 
         except Exception as e:
-            print(f"Transcription error: {e}")
+            print(f"ERROR: Transcription error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def get_results(self) -> List[PhraseResult]:
         """Get all pending results (non-blocking)."""
@@ -252,6 +322,20 @@ class AccumulatingTranscriptionProcessor:
         except Empty:
             pass
         return results
+    
+    def get_stats(self) -> dict:
+        """Get processor statistics."""
+        buffer_duration = len(self._phrase_bytes) / (16000 * 2) if self._phrase_bytes else 0
+        return {
+            "is_running": self._is_running,
+            "model_size": self.model_size,
+            "window_size": self.window_size,
+            "buffer_duration": buffer_duration,
+            "audio_chunks_fed": self._audio_chunks_fed,
+            "total_samples": self._total_samples_processed,
+            "transcription_count": self._transcription_count,
+            "pending_results": self._result_queue.qsize(),
+        }
 
 
 # Example usage
@@ -259,8 +343,9 @@ if __name__ == "__main__":
     # Create processor
     processor = AccumulatingTranscriptionProcessor(
         model_size="tiny",
-        record_timeout=2.0,
-        phrase_timeout=3.0
+        window_size=60.0,
+        update_frequency=2.0,
+        silence_timeout=3.0
     )
     
     # Set up result handler

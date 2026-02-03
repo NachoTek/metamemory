@@ -173,14 +173,19 @@ class WhisperTranscriptionEngine:
                 model_path.unlink()  # Clean up partial download
             raise
     
-    def load_model(self) -> None:
+    def load_model(self, progress_callback: Optional[callable] = None) -> None:
         """Load the Whisper model.
         
         This can take 2-5 seconds depending on model size and hardware.
         Automatically downloads the model if not present.
         Should be called before starting transcription.
+        
+        Args:
+            progress_callback: Optional callback(int: 0-100) for loading progress
         """
         if self._model_loaded:
+            if progress_callback:
+                progress_callback(100)
             return
         
         if not _WHISPER_AVAILABLE:
@@ -190,13 +195,20 @@ class WhisperTranscriptionEngine:
             )
         
         logger.info(f"Loading Whisper model: {self.model_size}")
+        if progress_callback:
+            progress_callback(0)
         
         try:
             model_path = self._get_model_path()
             
             # Download if needed
             if not model_path.exists():
+                if progress_callback:
+                    progress_callback(10)
                 self._download_model(model_path)
+            
+            if progress_callback:
+                progress_callback(50)
             
             # Load the model with whisper.cpp
             # Model takes model path as string, print options disabled
@@ -206,6 +218,10 @@ class WhisperTranscriptionEngine:
                 print_progress=False
             )
             self._model_loaded = True
+            
+            if progress_callback:
+                progress_callback(100)
+            
             logger.info(f"Model loaded successfully from {model_path}")
             
         except Exception as e:
