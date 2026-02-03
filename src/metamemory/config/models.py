@@ -46,6 +46,10 @@ class ModelSettings:
 class TranscriptionSettings:
     """Configuration for transcription behavior.
     
+    HYBRID TRANSCRIPTION SETTINGS:
+    - Real-time: Uses tiny model for immediate display (no agreement buffer)
+    - Post-processing: Uses stronger model after recording stops
+    
     Attributes:
         enabled: Whether transcription is enabled.
             Default: True
@@ -53,9 +57,19 @@ class TranscriptionSettings:
             Range: 0.0 to 1.0
             Default: 0.7
         min_chunk_size_sec: Minimum audio chunk size for VAD/processing.
-            Default: 1.0 (seconds)
-        agreement_threshold: Number of consecutive agreements for local agreement buffer.
-            Default: 2
+            Default: 0.5 (seconds) - reduced for lower latency
+        agreement_threshold: DEPRECATED - no longer used (real-time commits immediately)
+            Default: 1
+        
+        # Model selection for hybrid transcription
+        realtime_model_size: Model size for real-time transcription.
+            Options: "tiny", "base", "small"
+            Default: "tiny" (fastest for real-time)
+        postprocess_model_size: Model size for post-processing.
+            Options: "base", "small", "medium", "large"
+            Default: "base" (better accuracy for archive)
+        enable_postprocessing: Whether to run post-processing after recording.
+            Default: True
     """
     enabled: bool = field(
         default=True,
@@ -70,8 +84,22 @@ class TranscriptionSettings:
         metadata={"description": "Minimum audio chunk size in seconds"}
     )
     agreement_threshold: int = field(
-        default=2,
-        metadata={"description": "Consecutive agreements for local agreement buffer"}
+        default=1,  # DEPRECATED - real-time commits immediately
+        metadata={"description": "DEPRECATED: No longer used in hybrid transcription"}
+    )
+    
+    # HYBRID TRANSCRIPTION: Model selection
+    realtime_model_size: str = field(
+        default="tiny",
+        metadata={"description": "Model size for real-time transcription: tiny, base, or small"}
+    )
+    postprocess_model_size: str = field(
+        default="base",
+        metadata={"description": "Model size for post-processing: base, small, medium, or large"}
+    )
+    enable_postprocessing: bool = field(
+        default=True,
+        metadata={"description": "Enable post-processing with stronger model after recording"}
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -85,7 +113,10 @@ class TranscriptionSettings:
             enabled=data.get("enabled", cls.enabled),
             confidence_threshold=data.get("confidence_threshold", cls.confidence_threshold),
             min_chunk_size_sec=data.get("min_chunk_size_sec", cls.min_chunk_size_sec),
-            agreement_threshold=data.get("agreement_threshold", cls.agreement_threshold)
+            agreement_threshold=data.get("agreement_threshold", cls.agreement_threshold),
+            realtime_model_size=data.get("realtime_model_size", cls.realtime_model_size),
+            postprocess_model_size=data.get("postprocess_model_size", cls.postprocess_model_size),
+            enable_postprocessing=data.get("enable_postprocessing", cls.enable_postprocessing)
         )
 
 
