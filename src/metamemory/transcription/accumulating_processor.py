@@ -104,6 +104,9 @@ class AccumulatingTranscriptionProcessor:
         # Callbacks
         self.on_result: Optional[Callable[[PhraseResult], None]] = None
         
+        # Thread safety for model access
+        self._model_lock = threading.Lock()
+        
         # Debug counters
         self._audio_chunks_fed = 0
         self._total_samples_processed = 0
@@ -157,13 +160,12 @@ class AccumulatingTranscriptionProcessor:
         self._is_running = False
         self._stop_event.set()
         
-        # Process any remaining audio
-        if self._phrase_bytes:
-            print(f"DEBUG: Processing final phrase ({len(self._phrase_bytes)} bytes)...")
-            self._transcribe_accumulated(force_complete=True)
-        
+        # Wait for processing thread to finish
         if self._processing_thread:
             self._processing_thread.join(timeout=5.0)
+        
+        # Don't transcribe remaining audio here - it's unsafe and can cause GGML_ASSERT failure
+        # The processing loop will handle any remaining audio or we accept that the last phrase is lost
         
         print(f"DEBUG: Processor stopped. Total transcriptions: {self._transcription_count}, Total audio chunks: {self._audio_chunks_fed}")
     
@@ -203,6 +205,7 @@ class AccumulatingTranscriptionProcessor:
     def _processing_loop(self) -> None:
         """Main processing loop - runs in background thread."""
         print("DEBUG: Processing loop started")
+        silence_debug_counter = 0
         
         while self._is_running and not self._stop_event.is_set():
             try:
@@ -217,6 +220,13 @@ class AccumulatingTranscriptionProcessor:
                     time_since_update = (now - self._last_update_time).total_seconds() if self._last_update_time else float('inf')
                     buffer_duration = len(self._phrase_bytes) / (16000 * 2)  # seconds of audio in buffer
                     
+                    # Debug silence detection every 10 iterations (~1 second)
+                    silence_debug_counter += 1
+                    if silence_debug_counter >= 10:
+                        silence_debug_counter = 0
+                        silence_detected = time_since_audio >= self.silence_timeout
+                        print(f"DEBUG: Silence check - time_since_audio: {time_since_audio:.2f}s, silence_timeout: {self.silence_timeout}s, silence_detected: {silence_detected}")
+                    
                     # Transcribe if:
                     # 1. Silence timeout reached (phrase complete)
                     # 2. Update frequency reached and we have enough audio (> 0.5s)
@@ -224,7 +234,7 @@ class AccumulatingTranscriptionProcessor:
                         # Silence detected - phrase is complete
                         should_transcribe = True
                         phrase_complete = True
-                        print(f"DEBUG: Silence detected ({time_since_audio:.1f}s), finalizing phrase")
+                        print(f"DEBUG: Silence detected ({time_since_audio:.1f}s >= {self.silence_timeout}s), finalizing phrase")
                     elif time_since_update >= self.update_frequency and buffer_duration >= 0.5:
                         # Update frequency reached - transcribe but continue phrase
                         should_transcribe = True
@@ -268,9 +278,10 @@ class AccumulatingTranscriptionProcessor:
             # Convert bytes to numpy array
             audio_np = np.frombuffer(self._phrase_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             
-            # Transcribe
+            # Transcribe with thread safety
             start_time = time.time()
-            segments = self._engine.transcribe_chunk(audio_np)
+            with self._model_lock:
+                segments = self._engine.transcribe_chunk(audio_np)
             transcribe_time = time.time() - start_time
             
             self._transcription_count += 1
