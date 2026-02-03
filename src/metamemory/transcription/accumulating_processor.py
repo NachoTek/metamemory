@@ -176,6 +176,31 @@ class AccumulatingTranscriptionProcessor:
         Args:
             audio_chunk: Audio samples as float32 numpy array (mono, 16kHz)
         """
+        # Calculate audio energy (RMS) for speech detection
+        if len(audio_chunk) > 0:
+            energy = np.sqrt(np.mean(audio_chunk ** 2))
+        else:
+            energy = 0
+        
+        # Threshold for speech detection (tune this value based on testing)
+        SPEECH_THRESHOLD = 0.01
+        is_speech = energy > SPEECH_THRESHOLD
+        
+        # Only update last_audio_time if speech detected (fixes silence timeout bug)
+        if is_speech:
+            self._last_audio_time = datetime.utcnow()
+            if not hasattr(self, '_last_speech_debug'):
+                self._last_speech_debug = False
+            if not self._last_speech_debug:
+                print(f"DEBUG: Speech detected (energy: {energy:.4f})")
+            self._last_speech_debug = True
+        else:
+            if not hasattr(self, '_last_speech_debug'):
+                self._last_speech_debug = True
+            if self._last_speech_debug:
+                print(f"DEBUG: Silence detected (energy: {energy:.4f})")
+            self._last_speech_debug = False
+        
         # Convert float32 to int16 bytes (what whisper.cpp expects)
         if audio_chunk.dtype == np.float32:
             audio_int16 = (audio_chunk * 32767).astype(np.int16)
@@ -184,10 +209,9 @@ class AccumulatingTranscriptionProcessor:
         else:
             audio_int16 = audio_chunk.astype(np.int16)
         
-        # Add to accumulated buffer
+        # Add to accumulated buffer (always, for continuous transcription)
         chunk_bytes = audio_int16.tobytes()
         self._phrase_bytes += chunk_bytes
-        self._last_audio_time = datetime.utcnow()
         self._audio_chunks_fed += 1
         self._total_samples_processed += len(audio_chunk)
         
