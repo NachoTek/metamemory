@@ -510,6 +510,7 @@ class MeetAndReadWidget(QGraphicsView):
         self._controller.on_error = self._on_controller_error
         self._controller.on_word_received = self._on_word_received
         self._controller.on_transcript_update = self._on_transcript_update
+        self._controller.on_post_process_complete = self._on_post_process_complete
         self._error_indicator = None  # For showing errors
         
         # Transcript display
@@ -843,11 +844,30 @@ class MeetAndReadWidget(QGraphicsView):
         Args:
             words: List of Word objects
         """
+        print(f"DEBUG UI: Batch transcript update - {len(words)} words")
+        
         # Batch update for efficiency
         self._transcript_words.extend(words)
         
         if self._transcript_panel:
             self._transcript_panel.add_words(words)
+            print(f"DEBUG UI: Added batch to panel, total words: {len(self._transcript_panel._words)}")
+        else:
+            print("DEBUG UI: No transcript panel available for batch update!")
+    
+    def _on_post_process_complete(self, job_id, enhanced_path):
+        """Handle post-processing completion.
+        
+        Args:
+            job_id: The post-processing job ID
+            enhanced_path: Path to the enhanced transcript file
+        """
+        print(f"DEBUG UI: Post-processing complete! Job: {job_id}")
+        print(f"DEBUG UI: Enhanced transcript saved to: {enhanced_path}")
+        
+        # Optionally show a brief notification in the UI
+        # For now, just log it
+        # In the future, could add a visual indicator that enhanced version is available
     
     def _format_word(self, word):
         """Format word with confidence color information.
