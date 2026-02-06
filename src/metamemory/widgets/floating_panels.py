@@ -270,8 +270,43 @@ class FloatingTranscriptPanel(QWidget):
         else:
             return "#F44336"  # Red
     
+    def _on_scroll_value_changed(self, value: int) -> None:
+        """
+        Detect manual scroll and pause auto-scroll.
+        
+        Called when scrollbar value changes. If user scrolls up from bottom,
+        pause auto-scroll for 10 seconds to allow reading.
+        """
+        scrollbar = self.text_edit.verticalScrollBar()
+        maximum = scrollbar.maximum()
+        
+        # Check if user scrolled up from bottom (not at maximum)
+        if maximum > 0 and value < maximum - 10:  # 10 pixel threshold
+            # User scrolled up - pause auto-scroll
+            if not self._auto_scroll_paused:
+                print(f"DEBUG Panel: Manual scroll detected (value={value}, max={maximum}), pausing auto-scroll")
+                self._auto_scroll_paused = True
+                self._pause_timer.start(10000)  # 10 seconds
+                self.status_label.setText("Auto-scroll paused (10s)")
+        
+        # Update tracking
+        self._last_scroll_value = value
+        self._is_at_bottom = (value >= maximum - 5)  # Within 5 pixels of bottom
+    
+    def _resume_auto_scroll(self) -> None:
+        """Resume auto-scroll after pause timer expires."""
+        print("DEBUG Panel: Auto-scroll pause expired, resuming")
+        self._auto_scroll_paused = False
+        self.status_label.setText("Recording...")
+        # Immediately scroll to bottom to catch up
+        self._scroll_to_bottom()
+    
     def _scroll_to_bottom(self) -> None:
         """Auto-scroll to show latest text."""
+        # Don't scroll if auto-scroll is paused
+        if self._auto_scroll_paused:
+            return
+        
         scrollbar = self.text_edit.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
     
