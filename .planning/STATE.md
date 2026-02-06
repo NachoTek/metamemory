@@ -17,9 +17,9 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 2 of 6 (Real-Time Transcription Engine)
-Plan: 5 of 5 in current phase (gap closure complete)
-Status: Phase 2 Complete - Gap Closed + Bug Fixes Applied
-Last activity: 2026-02-03 - Fixed duplicate lines after silence detection (deduplication)
+Plan: 7 of 7 in current phase (transcript repetition fix complete)
+Status: Phase 2 Complete - All Gap Closures Applied
+Last activity: 2026-02-06 - Fixed transcript repetition with segment tracking
 
 Progress: ████████████░░░░░░░░ 25%
 
@@ -79,6 +79,8 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 - [✓] 02-03: Confidence scoring & hardware detection with model recommendations
 - [✓] 02-04: Integration & UI wiring (streaming pipeline, widget display, settings panel)
 - [✓] 02-05: **GAP CLOSURE** - Replace faster-whisper with whisper.cpp (fix WinError 1114)
+- [✓] 02-06: **GAP CLOSURE** - Fix settings panel dock_to_widget AttributeError
+- [✓] 02-07: **GAP CLOSURE** - Fix transcript repetition with segment tracking
 
 **Success Criteria:**
 1. ✅ User can start recording and capture clean audio from selected source(s)
@@ -137,6 +139,7 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-02 | Floating QWidget panels | Avoid QGraphicsItem clipping issues | Complete |
 | 2026-02-02 | Hybrid transcription architecture | Tiny for real-time, base for post-processing | Complete |
 | 2026-02-03 | Bug fix: Duplicate lines after silence | Add deduplication tracking and min phrase duration | Complete |
+| 2026-02-06 | Bug fix: Transcript text repetition | Segment index tracking to only emit new segments | Complete |
 
 ---
 
@@ -146,6 +149,7 @@ None currently.
 
 **Notes:**
 - Phase 2 complete - awaiting human verification checkpoint
+- Gap closures 02-06 and 02-07 complete
 - System audio loopback requires Windows Core Audio implementation (planned for Phase 4)
 - PortAudio WASAPI loopback symbol not exported in sounddevice binary
 - **Gap Closure 02-05 Complete:** PyTorch DLL issue resolved via whisper.cpp replacement
@@ -175,14 +179,14 @@ None currently.
 
 ## Session Continuity
 
-Last session: 2026-02-03
-Stopped at: Fixed duplicate lines bug after silence detection
-Resume file: .planning/phases/02-real-time-transcription-engine/BUGFIX-dedup-silence-SUMMARY.md
+Last session: 2026-02-06
+Stopped at: Fixed transcript repetition with segment tracking
+Resume file: .planning/phases/02-real-time-transcription-engine/02-07-SUMMARY.md
 
-**Current Status:** Phase 2 complete. Bug fix applied:
-- Fixed duplicate transcript lines after silence (commit 2917d97)
-- Added deduplication tracking and minimum phrase duration (0.3s)
-- All 27 transcription tests pass
+**Current Status:** Phase 2 complete. Two gap closures applied:
+- 02-06: Fixed settings panel dock_to_widget AttributeError
+- 02-07: Fixed transcript repetition with _last_emitted_segment_index tracking
+- Segment filtering prevents repeating text accumulation
 - Ready for human verification checkpoint
 
 *State file automatically updated throughout project lifecycle*
