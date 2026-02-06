@@ -5,6 +5,9 @@ Main application entry point.
 
 import sys
 import threading
+import logging
+import signal
+from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
@@ -13,6 +16,49 @@ from metamemory.widgets.main_widget import MeetAndReadWidget
 from metamemory.audio import has_partial_recordings, recover_part_files, get_recordings_dir
 from metamemory.config import get_config
 from metamemory.hardware.recommender import ModelRecommender
+
+
+class TeeOutput:
+    """Redirects stdout to both console and log file."""
+    def __init__(self, logger):
+        self.logger = logger
+        self.stdout = sys.stdout
+        
+    def write(self, message):
+        self.stdout.write(message)
+        self.stdout.flush()
+        if message.strip():
+            self.logger.debug(message.rstrip())
+    
+    def flush(self):
+        self.stdout.flush()
+
+
+def setup_logging():
+    """Setup logging to both console and file with timestamped filename."""
+    # Create logs directory in the project root
+    logs_dir = Path(__file__).parent.parent.parent / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Create timestamped log filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"metamemory_{timestamp}.log"
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        ]
+    )
+    
+    # Redirect stdout to both console and file
+    sys.stdout = TeeOutput(logging.getLogger())
+    
+    print(f"Logging to: {log_file}")
+    print(f"Logs directory: {logs_dir}")
+    return log_file
 
 
 def check_and_offer_recovery(parent=None):
@@ -109,8 +155,42 @@ def check_and_offer_recovery(parent=None):
     return len(recovered_files), False
 
 
+def setup_signal_handlers(app):
+    """Setup signal handlers for graceful shutdown.
+    
+    Args:
+        app: QApplication instance to quit on signal
+    """
+    def sigint_handler(signum, frame):
+        """Handle SIGINT (Ctrl+C) gracefully."""
+        print("\nReceived SIGINT, shutting down gracefully...")
+        app.quit()
+    
+    # Register SIGINT handler
+    signal.signal(signal.SIGINT, sigint_handler)
+    
+    # On Windows, also set up console control handler for Ctrl+C
+    if sys.platform == 'win32':
+        try:
+            import win32api
+            def win_handler(dwCtrlType):
+                if dwCtrlType == 0:  # CTRL_C_EVENT
+                    print("\nReceived CTRL+C event, shutting down gracefully...")
+                    app.quit()
+                    return True
+                return False
+            win32api.SetConsoleCtrlHandler(win_handler, True)
+        except ImportError:
+            # win32api not available, SIGINT handler should still work
+            pass
+
+
 def main():
     """Application entry point."""
+    # Setup logging first
+    log_file = setup_logging()
+    logging.info("Starting metamemory")
+    
     # Enable high DPI support
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -119,6 +199,9 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("metamemory")
     app.setApplicationDisplayName("metamemory")
+    
+    # Setup signal handlers for graceful Ctrl+C shutdown
+    setup_signal_handlers(app)
     
     # Run hardware detection on first startup (if auto-detect enabled)
     try:
