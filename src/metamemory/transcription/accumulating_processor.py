@@ -380,33 +380,54 @@ class AccumulatingTranscriptionProcessor:
                         is_final=force_complete,
                         phrase_start=(i == 0 and self._new_phrase_started)
                     ))
-
-                # Track last state (for logging only)
+                
+                # Track last emitted text for logging
                 if segments:
                     last_seg_text = segments[-1].text.strip()
                     self._last_emitted_text = last_seg_text
                     print(f"DEBUG:   Last emitted text: '{self._last_emitted_text[:30]}...'")
-
-
+                else:
+                    print(f"DEBUG:   Last emitted text: '{self._last_emitted_text[:30] if self._last_emitted_text else '(empty)'}...'")
+                
+                # Output all segments to UI (panel handles updating in place)
+                for i, seg in enumerate(segments):
+                    seg_text = seg.text.strip()
+                    if not seg_text or seg_text == "[BLANK_AUDIO]":
+                        print(f"DEBUG:     Skipping blank/[BLANK_AUDIO] segment")
+                        continue
+                    
+                    # Calculate timing relative to recording start
+                    elapsed = (datetime.utcnow() - self._recording_start_time).total_seconds() if self._recording_start_time else 0
+                    segment_start = elapsed - buffer_duration + seg.start
+                    segment_end = elapsed - buffer_duration + seg.end
+                    
+                    # Create result for this segment
+                    result = SegmentResult(
+                        text=seg_text,
+                        confidence=int(seg.confidence),
+                        start_time=segment_start,
+                        end_time=segment_end,
+                        segment_index=i,
+                        is_final=force_complete,
+                        phrase_start=(i == 0 and self._new_phrase_started)
+                    )
+                    
+                    # Queue for UI
+                    self._result_queue.put(result)
+                    print(f"DEBUG: Queued segment {i}: '{seg_text[:30]}...' (qsize: {self._result_queue.qsize()})")
+                    
                     # Callback
                     if self.on_result:
                         try:
-                            print(f"DEBUG: Calling on_result callback")
                             self.on_result(result)
-                            print(f"DEBUG: on_result callback returned successfully")
                         except Exception as e:
                             print(f"ERROR: on_result callback failed: {e}")
                     else:
                         print(f"DEBUG: No on_result callback registered!")
                     
-                    print(f"DEBUG: Segment {i}: '{segment_text}' [conf: {seg.confidence}%, final: {force_complete}]")
+                    print(f"DEBUG: Segment {i}: '{seg_text}' [conf: {seg.confidence}%, final: {force_complete}]")
                 
-                # Update last emitted index to the highest index we just processed
-                if segments:
-                    self._last_emitted_segment_index = len(segments) - 1
-                    print(f"DEBUG: Updated _last_emitted_segment_index to {self._last_emitted_segment_index}")
-                
-                print(f"DEBUG: Transcribed {len(segments)} total segments, {len(new_segments)} new, in {transcribe_time:.2f}s")
+                print(f"DEBUG: Transcribed {len(segments)} total segments in {transcribe_time:.2f}s")
             else:
                 print(f"DEBUG: No transcription result for {buffer_duration:.1f}s of audio")
                 
