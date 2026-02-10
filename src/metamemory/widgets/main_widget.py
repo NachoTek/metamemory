@@ -184,6 +184,10 @@ to avoid clipping issues and enable proper text rendering.
         # Floating settings panel
         self._floating_settings_panel = FloatingSettingsPanel(self)
         self._floating_settings_panel.hide_panel()
+
+        # Connect model_changed signal to save config
+        self._floating_settings_panel.model_changed.connect(save_config)
+
         print("DEBUG: Created floating settings panel")
     
     def _on_panel_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool):
