@@ -444,8 +444,15 @@ class FloatingSettingsPanel(QWidget):
             from PyQt6.QtWidgets import QRadioButton
             btn = QRadioButton(model_name)
             btn.setStyleSheet("color: #fff;")
+
+            # Emit signal when button is checked (toggled True)
+            btn.toggled.connect(
+                lambda checked, m=model_id: checked and self.model_changed.emit(m)
+            )
+
             self.model_group.addButton(btn)
             layout.addWidget(btn)
+
             if model_id == "tiny":
                 btn.setChecked(True)
         
