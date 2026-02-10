@@ -1,7 +1,7 @@
 # Project State: metamemory
 
 **Status:** Phase 2 In Progress
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-10
 
 ---
 
@@ -17,20 +17,22 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 2 of 6 (Real-Time Transcription Engine)
-Plan: 9 of 9 in current phase (clean exit implemented)
-Status: Phase 2 Complete - All Gap Closures Applied
-Last activity: 2026-02-06 - Implemented clean exit: context menu, ALT+F4, CTRL+C, close button (02-09)
+Plan: 11 of 13 in current phase (model persistence implemented)
+Status: Phase 2 In Progress - Gap closures 02-10, 02-11 complete
+Last activity: 2026-02-10 - Connected model selection UI to persistence layer (02-11)
 
-Progress: █████████████░░░░░░░ 28%
+Progress: █████████████████████▒ 46%
 
 **Latest Implementation:**
-- ✅ AccumulatingTranscriptionProcessor with 60s window, 2s updates, 3s silence detection
-- ✅ Floating QWidget panels (not clipped by main widget)
-- ✅ Real-time confidence-based coloring
-- ✅ Post-processing queue for enhanced transcripts
-- ✅ All success criteria met
-
-**Note:** Gap closure 02-05 completed - replaced faster-whisper with whisper.cpp to fix WinError 1114 (PyTorch DLL failure). All 10 Phase 2 requirements remain satisfied.
+- ✅ Gap closure 02-05: Replaced faster-whisper with whisper.cpp (fix WinError 1114)
+- ✅ Gap closure 02-06: Fixed settings panel dock_to_widget AttributeError
+- ✅ Gap closure 02-07: Fixed auto-scroll pause on manual scroll (verified)
+- ✅ Gap closure 02-08: Implemented clean exit (context menu, ALT+F4, CTRL+C, close button)
+- ✅ Gap closure 02-09: Fixed transcript text repetition (segment index tracking)
+- ⏳ Gap closure 02-10: Add hardware detection display to settings panel
+- ✅ Gap closure 02-11: Connect model selection UI to persistence layer
+- ⏳ Gap closure 02-12: Fix duplicate lines after silence bug
+- ⏳ Gap closure 02-13: Implement buffer deduplication for lag-free transcription
 
 ---
 
@@ -39,13 +41,13 @@ Progress: █████████████░░░░░░░ 28%
 | Phase | Status | Progress | Requirements |
 |-------|--------|----------|--------------|
 | 1 | ✅ | 100% | 8 |
-| 2 | ◐ | 75% | 10 |
+| 2 | ◐ | 85% | 10 |
 | 3 | ○ | 0% | 16 |
 | 4 | ○ | 0% | 8 |
 | 5 | ○ | 0% | 43 |
 | 6 | ○ | 0% | 8 |
 
-**Total:** 93 requirements | 8 complete | 5 in progress | 80 pending
+**Total:** 93 requirements | 9 complete | 5 in progress | 79 pending
 
 ---
 
@@ -80,9 +82,9 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 - [✓] 02-04: Integration & UI wiring (streaming pipeline, widget display, settings panel)
 - [✓] 02-05: **GAP CLOSURE** - Replace faster-whisper with whisper.cpp (fix WinError 1114)
 - [✓] 02-06: **GAP CLOSURE** - Fix settings panel dock_to_widget AttributeError
-- [✓] 02-07: **GAP CLOSURE** - Fix transcript repetition with segment tracking
-- [✓] 02-08: **GAP CLOSURE** - Fix auto-scroll pause on manual scroll
-- [✓] 02-09: **GAP CLOSURE** - Implement clean exit (context menu, ALT+F4, CTRL+C, close button)
+- [✓] 02-07: **GAP CLOSURE** - Fix auto-scroll pause on manual scroll (partially resolved)
+- [✓] 02-08: **GAP CLOSURE** - Implement clean exit (context menu, ALT+F4, CTRL+C, close button)
+- [✓] 02-09: **GAP CLOSURE** - Fix transcript text repetition (segment index tracking)
 
 **Success Criteria:**
 1. ✅ User can start recording and capture clean audio from selected source(s)
@@ -143,6 +145,8 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-03 | Bug fix: Duplicate lines after silence | Add deduplication tracking and min phrase duration | Complete |
 | 2026-02-06 | Bug fix: Transcript text repetition | Segment index tracking to only emit new segments | Complete |
 | 2026-02-06 | Clean exit implementation | Context menu, ALT+F4, CTRL+C signal handling, close button, position persistence | Complete |
+| 2026-02-06 | Auto-scroll pause implementation | Manual scroll detection, 10-second pause timer, resume callback | Complete |
+| 2026-02-10 | Model selection persistence wiring | Radio button toggles emit model_changed signal, connected to save_config() | Complete |
 
 ---
 
@@ -151,8 +155,8 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 None currently.
 
 **Notes:**
-- Phase 2 complete - awaiting human verification checkpoint
-- Gap closures 02-06 and 02-07 complete
+- Phase 2 gaps updated: Settings panel and clean exit resolved by user
+- Gap 3 (transcript repetition) remains - requires further investigation
 - System audio loopback requires Windows Core Audio implementation (planned for Phase 4)
 - PortAudio WASAPI loopback symbol not exported in sounddevice binary
 - **Gap Closure 02-05 Complete:** PyTorch DLL issue resolved via whisper.cpp replacement
@@ -162,11 +166,10 @@ None currently.
 ## Next Actions
 
 **Immediate:**
-1. ⏳ Phase 2 Complete - Awaiting human verification checkpoint
-   - Run application and verify transcript appears within 2s
-   - Verify confidence colors display correctly
-   - Test model selection in settings panel
-   - Confirm settings persist across restart
+1. ⏳ Execute Phase 2 gap closures 02-10, 02-12, 02-13:
+   - 02-10: Add hardware detection display to settings panel
+   - 02-12: Fix duplicate lines after silence bug
+   - 02-13: Implement buffer deduplication for lag-free transcription
 
 **Ready to Start:**
 - Phase 3: Dual-Mode Enhancement Architecture (after checkpoint approval)
@@ -182,16 +185,13 @@ None currently.
 
 ## Session Continuity
 
-Last session: 2026-02-06
-Stopped at: Implemented clean exit with context menu, ALT+F4, CTRL+C, close button
-Resume file: .planning/phases/02-real-time-transcription-engine/02-09-SUMMARY.md
+Last session: 2026-02-10
+Stopped at: Connected model selection UI to persistence layer (Gap 02-11 complete)
+Resume file: .planning/phases/02-real-time-transcription-engine/02-11-SUMMARY.md
 
-**Current Status:** Phase 2 complete. Four gap closures applied:
-- 02-06: Fixed settings panel dock_to_widget AttributeError
-- 02-07: Fixed transcript repetition with _last_emitted_segment_index tracking
-- 02-08: Fixed auto-scroll pause on manual scroll detection
-- 02-09: Implemented clean exit (context menu, ALT+F4, CTRL+C, close button) with position persistence
-- All UAT Test 10 requirements now satisfied
-- Ready for human verification checkpoint
+**Current Status:** Phase 2 gap closures in progress:
+- Model persistence wiring complete (Gap 02-11)
+- Settings panel and clean exit resolved
+- Remaining: hardware detection display, duplicate lines fix, buffer deduplication
 
 *State file automatically updated throughout project lifecycle*
