@@ -20,6 +20,8 @@ import threading
 import time
 import queue
 import logging
+import asyncio
+from concurrent.futures import Future
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Optional, List, Callable, Any, Dict
@@ -30,7 +32,10 @@ from metamemory.config.models import AppSettings, TranscriptionSettings, Enhance
 from metamemory.transcription.audio_buffer import AudioRingBuffer
 from metamemory.transcription.vad_processor import VADChunkingProcessor
 from metamemory.transcription.engine import WhisperTranscriptionEngine, TranscriptionSegment
-from metamemory.transcription.enhancement import EnhancementQueue, EnhancementWorkerPool, EnhancementProcessor, TranscriptUpdater
+from metamemory.transcription.enhancement import (
+    EnhancementQueue, EnhancementWorkerPool, EnhancementProcessor, 
+    TranscriptUpdater, EnhancementConfig
+)
 from metamemory.transcription.confidence import should_enhance, ConfidenceLevel
 
 
@@ -46,6 +51,9 @@ class PipelineResult:
         words: List of word-level data with timestamps and confidence
         is_realtime: Whether this is from real-time transcription (True) or post-processing (False)
         chunk_id: Unique identifier for this chunk (for post-processing correlation)
+        is_enhanced: Whether this segment was enhanced with large model (True for bold formatting)
+        original_text: Original text before enhancement (if enhanced)
+        enhancement_error: Error message if enhancement failed
     """
     text: str
     confidence: int
@@ -54,6 +62,9 @@ class PipelineResult:
     words: List[Any]  # List of WordInfo or similar
     is_realtime: bool = True
     chunk_id: int = 0
+    is_enhanced: bool = False
+    original_text: str = ""
+    enhancement_error: Optional[str] = None
 
 
 class RealTimeTranscriptionProcessor:
@@ -114,9 +125,23 @@ class RealTimeTranscriptionProcessor:
         
         # Enhancement components
         self._enhancement_queue = EnhancementQueue(max_size=100)
-        self._enhancement_worker_pool = EnhancementWorkerPool(num_workers=4)
-        self._enhancement_processor = EnhancementProcessor(model_name="medium")
+        enhancement_config = EnhancementConfig(
+            confidence_threshold=self._enhancement_config.confidence_threshold,
+            num_workers=self._enhancement_config.num_workers,
+            enhancement_model=self._enhancement_config.enhancement_model
+        )
+        self._enhancement_worker_pool = EnhancementWorkerPool(
+            num_workers=self._enhancement_config.num_workers,
+            dynamic_scaling=self._enhancement_config.dynamic_scaling,
+            cpu_usage_threshold=self._enhancement_config.cpu_usage_threshold
+        )
+        self._enhancement_processor = EnhancementProcessor(config=enhancement_config)
         self._transcript_updater = TranscriptUpdater()
+        
+        # Track enhancement status
+        self._is_processing_enhancement = False
+        self._enhancement_completed_segments = 0
+        self._enhancement_failed_segments = 0
         
         # NO LocalAgreementBuffer - we commit immediately for real-time display
         # The agreement buffer was designed for re-transcribing accumulated audio
@@ -145,6 +170,11 @@ class RealTimeTranscriptionProcessor:
         
         # Word-level confidence callback for enhanced granularity
         self._on_word_confidence: Optional[Callable[[str, int, Dict], None]] = None
+        
+        # Enhancement event loop for async processing
+        self._enhancement_event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._enhancement_thread: Optional[threading.Thread] = None
+        self._enhancement_stop_event = threading.Event()
     
     def set_model_config(self, model_size: str, device: str = "cpu", 
                          compute_type: str = "int8") -> None:
@@ -211,6 +241,8 @@ class RealTimeTranscriptionProcessor:
         self._recording_start_time = time.time()
         self._total_samples_processed = 0
         self._last_vad_was_speech = False
+        self._enhancement_completed_segments = 0
+        self._enhancement_failed_segments = 0
         
         # Clear any previous results
         while not self._result_queue.empty():
@@ -228,11 +260,15 @@ class RealTimeTranscriptionProcessor:
             name="TranscriptionProcessor"
         )
         self._processing_thread.start()
+        
+        # Start enhancement processing in background
+        self.start_enhancement_processing()
     
     def stop(self) -> None:
         """Stop the transcription processing thread.
         
         Waits up to 5 seconds for the processing thread to finish.
+        Also waits up to 30 seconds for enhancement processing to complete.
         """
         if not self._is_running:
             return
@@ -243,6 +279,9 @@ class RealTimeTranscriptionProcessor:
         if self._processing_thread:
             self._processing_thread.join(timeout=5.0)
             self._processing_thread = None
+        
+        # Stop enhancement processing
+        self.stop_enhancement_processing(timeout=30.0)
     
     def feed_audio(self, chunk: np.ndarray) -> None:
         """Feed audio data from the capture thread.
@@ -474,3 +513,188 @@ class RealTimeTranscriptionProcessor:
         self._recording_start_time = None
         self._total_samples_processed = 0
         self._last_vad_was_speech = False
+    
+    def start_enhancement_processing(self) -> None:
+        """Start the background enhancement processing thread.
+        
+        This should be called when recording starts to begin processing
+        queued segments in the background.
+        """
+        if self._enhancement_thread is not None and self._enhancement_thread.is_alive():
+            logger.warning("Enhancement processing thread already running")
+            return
+        
+        self._enhancement_stop_event.clear()
+        self._enhancement_thread = threading.Thread(
+            target=self._enhancement_processing_loop,
+            daemon=True,
+            name="EnhancementProcessor"
+        )
+        self._enhancement_thread.start()
+        
+        # Register completion callback
+        self._enhancement_worker_pool.add_completion_callback(self._on_enhancement_complete)
+        
+        # Start worker pool
+        self._enhancement_worker_pool.start()
+        
+        logger.info("Started enhancement processing thread")
+    
+    def stop_enhancement_processing(self, timeout: float = 30.0) -> None:
+        """Stop the background enhancement processing thread.
+        
+        Args:
+            timeout: Maximum time to wait for pending enhancement tasks (default: 30s)
+        """
+        if self._enhancement_thread is None:
+            return
+        
+        self._enhancement_stop_event.set()
+        
+        # Wait for processing thread to stop
+        self._enhancement_thread.join(timeout=2.0)
+        self._enhancement_thread = None
+        
+        # Stop worker pool
+        if self._enhancement_worker_pool.is_running:
+            # Run async stop in event loop
+            if self._enhancement_event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._enhancement_worker_pool.stop(timeout=timeout),
+                    self._enhancement_event_loop
+                )
+        
+        logger.info(f"Stopped enhancement processing (completed: {self._enhancement_completed_segments}, failed: {self._enhancement_failed_segments})")
+    
+    def _enhancement_processing_loop(self) -> None:
+        """Background thread that processes enhancement queue.
+        
+        This runs continuously, pulling segments from the enhancement queue
+        and submitting them to the worker pool for processing.
+        """
+        # Create event loop for this thread
+        self._enhancement_event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._enhancement_event_loop)
+        
+        logger.info("Enhancement processing loop started")
+        
+        try:
+            while not self._enhancement_stop_event.is_set():
+                # Check if there are segments to enhance
+                segment = self._enhancement_queue.dequeue()
+                
+                if segment is not None:
+                    logger.debug(f"Dequeued segment {segment['id']} for enhancement")
+                    
+                    # Process segment asynchronously
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._enhancement_worker_pool.process_segment_async(
+                            segment,
+                            self._enhancement_processor
+                        ),
+                        self._enhancement_event_loop
+                    )
+                    
+                    # Handle future errors
+                    def future_done_callback(f: Future):
+                        try:
+                            f.result()
+                        except Exception as e:
+                            logger.error(f"Enhancement future error: {e}")
+                    
+                    future.add_done_callback(future_done_callback)
+                else:
+                    # No segments to process, sleep briefly
+                    time.sleep(0.05)
+                    
+        except Exception as e:
+            logger.error(f"Enhancement processing loop error: {e}")
+        finally:
+            # Close event loop
+            self._enhancement_event_loop.close()
+            self._enhancement_event_loop = None
+            logger.info("Enhancement processing loop stopped")
+    
+    def _on_enhancement_complete(self, result: Dict[str, Any]) -> None:
+        """
+        Handle completion of segment enhancement.
+        
+        Called by the worker pool when a segment enhancement completes.
+        Queues the enhanced segment for UI display with bold formatting.
+        
+        Args:
+            result: Enhancement result dictionary containing:
+                - id: Segment ID
+                - enhanced_text: Enhanced transcription (if successful)
+                - original_text: Original transcription
+                - confidence: Confidence score
+                - enhanced: Whether enhancement succeeded
+                - error: Error message (if failed)
+        """
+        segment_id = result.get('id', 'unknown')
+        
+        if result.get('enhanced', False):
+            # Enhancement successful
+            enhanced_text = result.get('enhanced_text', result.get('original_text', ''))
+            original_text = result.get('original_text', '')
+            confidence = result.get('confidence', 0)
+            
+            # Create PipelineResult for enhanced segment
+            # Use is_enhanced=True to trigger bold formatting in UI
+            enhanced_result = PipelineResult(
+                text=enhanced_text,
+                confidence=int(confidence),
+                start_time=result.get('start', 0.0),
+                end_time=result.get('end', 0.0),
+                words=result.get('words', []),
+                is_realtime=False,  # Enhanced segments are post-processed
+                chunk_id=int(segment_id.replace('chunk_', '')) if 'chunk_' in segment_id else 0,
+                is_enhanced=True,  # Bold formatting flag
+                original_text=original_text,
+                enhancement_error=None
+            )
+            
+            # Queue for UI consumption
+            self._result_queue.put(enhanced_result)
+            
+            self._enhancement_completed_segments += 1
+            logger.debug(f"Enhancement complete for segment {segment_id}: '{enhanced_text}' (bold)")
+        else:
+            # Enhancement failed
+            error_msg = result.get('error', 'Unknown error')
+            original_text = result.get('original_text', result.get('text', ''))
+            
+            # Queue original segment with error flag
+            failed_result = PipelineResult(
+                text=original_text,
+                confidence=result.get('confidence', 0),
+                start_time=0.0,
+                end_time=0.0,
+                words=[],
+                is_realtime=False,
+                chunk_id=int(segment_id.replace('chunk_', '')) if 'chunk_' in segment_id else 0,
+                is_enhanced=False,
+                original_text=original_text,
+                enhancement_error=error_msg
+            )
+            
+            self._result_queue.put(failed_result)
+            self._enhancement_failed_segments += 1
+            logger.warning(f"Enhancement failed for segment {segment_id}: {error_msg}")
+    
+    def get_enhancement_status(self) -> Dict[str, Any]:
+        """Get current enhancement processing status.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with enhancement statistics
+        """
+        worker_pool_status = self._enhancement_worker_pool.get_status()
+        queue_status = self._enhancement_queue.get_status()
+        
+        return {
+            'is_processing': self._enhancement_thread is not None and self._enhancement_thread.is_alive(),
+            'completed_segments': self._enhancement_completed_segments,
+            'failed_segments': self._enhancement_failed_segments,
+            'worker_pool': worker_pool_status,
+            'queue': queue_status
+        }
