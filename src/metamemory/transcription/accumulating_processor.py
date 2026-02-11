@@ -383,7 +383,7 @@ class AccumulatingTranscriptionProcessor:
                         end_time=seg.end,
                         segment_index=actual_index,
                         is_final=force_complete,
-                        phrase_start=(actual_index == 0 and self._new_phrase_started)
+                        phrase_start=(actual_index == 0 and phrase_start)
                     ))
 
                 # Update last emitted index
