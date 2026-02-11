@@ -17,11 +17,11 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 2 of 6 (Real-Time Transcription Engine)
-Plan: 11 of 13 in current phase (model persistence implemented)
-Status: Phase 2 In Progress - Gap closures 02-10, 02-11 complete
-Last activity: 2026-02-10 - Connected model selection UI to persistence layer (02-11)
+Plan: 12 of 13 in current phase (buffer deduplication complete)
+Status: Phase 2 In Progress - Gap closures 02-10, 02-11, 02-13 complete
+Last activity: 2026-02-10 - Implemented buffer deduplication to prevent duplicate words (02-13)
 
-Progress: █████████████████████▒ 46%
+Progress: ██████████████████████ 50%
 
 **Latest Implementation:**
 - ✅ Gap closure 02-05: Replaced faster-whisper with whisper.cpp (fix WinError 1114)
@@ -32,7 +32,7 @@ Progress: █████████████████████▒ 46%
 - ⏳ Gap closure 02-10: Add hardware detection display to settings panel
 - ✅ Gap closure 02-11: Connect model selection UI to persistence layer
 - ⏳ Gap closure 02-12: Fix duplicate lines after silence bug
-- ⏳ Gap closure 02-13: Implement buffer deduplication for lag-free transcription
+- ✅ Gap closure 02-13: Implemented buffer deduplication (segment index tracking)
 
 ---
 
@@ -147,6 +147,7 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-06 | Clean exit implementation | Context menu, ALT+F4, CTRL+C signal handling, close button, position persistence | Complete |
 | 2026-02-06 | Auto-scroll pause implementation | Manual scroll detection, 10-second pause timer, resume callback | Complete |
 | 2026-02-10 | Model selection persistence wiring | Radio button toggles emit model_changed signal, connected to save_config() | Complete |
+| 2026-02-10 | Buffer deduplication for continuous transcription | Segment index tracking to skip already-emitted segments in each 2s cycle, reset on phrase complete | Complete |
 
 ---
 
@@ -166,10 +167,9 @@ None currently.
 ## Next Actions
 
 **Immediate:**
-1. ⏳ Execute Phase 2 gap closures 02-10, 02-12, 02-13:
+1. ⏳ Execute Phase 2 gap closures 02-10 and 02-12:
    - 02-10: Add hardware detection display to settings panel
    - 02-12: Fix duplicate lines after silence bug
-   - 02-13: Implement buffer deduplication for lag-free transcription
 
 **Ready to Start:**
 - Phase 3: Dual-Mode Enhancement Architecture (after checkpoint approval)
@@ -186,12 +186,13 @@ None currently.
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Connected model selection UI to persistence layer (Gap 02-11 complete)
-Resume file: .planning/phases/02-real-time-transcription-engine/02-11-SUMMARY.md
+Stopped at: Implemented buffer deduplication to prevent duplicate words (Gap 02-13 complete)
+Resume file: .planning/phases/02-real-time-transcription-engine/02-13-SUMMARY.md
 
 **Current Status:** Phase 2 gap closures in progress:
 - Model persistence wiring complete (Gap 02-11)
-- Settings panel and clean exit resolved
-- Remaining: hardware detection display, duplicate lines fix, buffer deduplication
+- Settings panel and clean exit resolved (Gap 02-08, 02-06)
+- Buffer deduplication complete (Gap 02-13)
+- Remaining: hardware detection display, duplicate lines fix (Gap 02-10, 02-12)
 
 *State file automatically updated throughout project lifecycle*
