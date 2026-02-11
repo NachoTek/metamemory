@@ -29,7 +29,7 @@ Progress: ██████████████████████ 50%
 - ✅ Gap closure 02-07: Fixed auto-scroll pause on manual scroll (verified)
 - ✅ Gap closure 02-08: Implemented clean exit (context menu, ALT+F4, CTRL+C, close button)
 - ✅ Gap closure 02-09: Fixed transcript text repetition (segment index tracking)
-- ⏳ Gap closure 02-10: Add hardware detection display to settings panel
+- ✅ Gap closure 02-10: Add hardware detection display to settings panel
 - ✅ Gap closure 02-11: Connect model selection UI to persistence layer
 - ⏳ Gap closure 02-12: Fix duplicate lines after silence bug
 - ✅ Gap closure 02-13: Implemented buffer deduplication (segment index tracking)
@@ -148,6 +148,7 @@ A widget foundation was built ahead of schedule as exploration code. This code e
 | 2026-02-06 | Auto-scroll pause implementation | Manual scroll detection, 10-second pause timer, resume callback | Complete |
 | 2026-02-10 | Model selection persistence wiring | Radio button toggles emit model_changed signal, connected to save_config() | Complete |
 | 2026-02-10 | Buffer deduplication for continuous transcription | Segment index tracking to skip already-emitted segments in each 2s cycle, reset on phrase complete | Complete |
+| 2026-02-10 | Hardware detection display integration | Added HardwareDetector and ModelRecommender to settings panel, display RAM, CPU cores, frequency, recommended model | Complete |
 
 ---
 
@@ -167,8 +168,7 @@ None currently.
 ## Next Actions
 
 **Immediate:**
-1. ⏳ Execute Phase 2 gap closures 02-10 and 02-12:
-   - 02-10: Add hardware detection display to settings panel
+1. ⏳ Execute Phase 2 gap closure 02-12:
    - 02-12: Fix duplicate lines after silence bug
 
 **Ready to Start:**
@@ -186,13 +186,14 @@ None currently.
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Implemented buffer deduplication to prevent duplicate words (Gap 02-13 complete)
-Resume file: .planning/phases/02-real-time-transcription-engine/02-13-SUMMARY.md
+Stopped at: Implemented hardware detection display in settings panel (Gap 02-10 complete)
+Resume file: .planning/phases/02-real-time-transcription-engine/02-10-SUMMARY.md
 
 **Current Status:** Phase 2 gap closures in progress:
 - Model persistence wiring complete (Gap 02-11)
+- Hardware detection display complete (Gap 02-10)
 - Settings panel and clean exit resolved (Gap 02-08, 02-06)
 - Buffer deduplication complete (Gap 02-13)
-- Remaining: hardware detection display, duplicate lines fix (Gap 02-10, 02-12)
+- Remaining: duplicate lines fix (Gap 02-12)
 
 *State file automatically updated throughout project lifecycle*
