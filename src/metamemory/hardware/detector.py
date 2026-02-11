@@ -217,3 +217,44 @@ class HardwareDetector:
             f"{freq_str}, "
             f"{specs.platform} {'64-bit' if specs.is_64bit else '32-bit'}"
         )
+
+    def get_ram_gb(self, specs: Optional[SystemSpecs] = None) -> float:
+        """Get total system RAM in gigabytes.
+        
+        Args:
+            specs: SystemSpecs to use. If None, calls detect().
+            
+        Returns:
+            Total RAM in GB
+        """
+        if specs is None:
+            specs = self.detect()
+        return specs.total_ram_gb
+
+    def get_cpu_cores(self, specs: Optional[SystemSpecs] = None) -> int:
+        """Get number of logical CPU cores.
+        
+        Args:
+            specs: SystemSpecs to use. If None, calls detect().
+            
+        Returns:
+            Number of logical CPU cores
+        """
+        if specs is None:
+            specs = self.detect()
+        return specs.cpu_count_logical
+
+    def get_cpu_frequency(self, specs: Optional[SystemSpecs] = None) -> float:
+        """Get CPU frequency in GHz.
+        
+        Args:
+            specs: SystemSpecs to use. If None, calls detect().
+            
+        Returns:
+            CPU frequency in GHz (0.0 if unavailable)
+        """
+        if specs is None:
+            specs = self.detect()
+        if specs.cpu_freq_mhz is None:
+            return 0.0
+        return specs.cpu_freq_mhz / 1000.0  # Convert MHz to GHz

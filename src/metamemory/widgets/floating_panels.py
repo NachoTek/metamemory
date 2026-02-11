@@ -11,6 +11,9 @@ from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from typing import List, Optional
 from dataclasses import dataclass
 
+from metamemory.hardware.detector import HardwareDetector
+from metamemory.hardware.recommender import ModelRecommender
+
 
 @dataclass
 class Phrase:
@@ -455,7 +458,28 @@ class FloatingSettingsPanel(QWidget):
 
             if model_id == "tiny":
                 btn.setChecked(True)
-        
+
+        # Hardware detection section
+        hardware_label = QLabel("Hardware:")
+        layout.addWidget(hardware_label)
+
+        self.hardware_detector = HardwareDetector()
+        self.model_recommender = ModelRecommender()
+
+        ram_value = self.hardware_detector.get_ram_gb()
+        cpu_cores = self.hardware_detector.get_cpu_cores()
+        cpu_freq = self.hardware_detector.get_cpu_frequency()
+        recommended = self.model_recommender.get_recommendation()
+
+        ram_label = QLabel(f"RAM: {ram_value:.1f} GB")
+        cpu_label = QLabel(f"CPU: {cpu_cores} cores @ {cpu_freq:.1f} GHz")
+        rec_label = QLabel(f"Recommended: {recommended}")
+        rec_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+
+        layout.addWidget(ram_label)
+        layout.addWidget(cpu_label)
+        layout.addWidget(rec_label)
+
         layout.addStretch()
         
         # Close button
