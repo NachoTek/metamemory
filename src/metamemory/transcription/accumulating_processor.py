@@ -18,11 +18,22 @@ This implementation is optimized for meetings and calls:
 import time
 import threading
 import numpy as np
+import asyncio
+import logging
 from pathlib import Path
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from queue import Queue, Empty
+
+# Enhancement imports
+from metamemory.config import get_config
+from metamemory.transcription.enhancement import (
+    EnhancementQueue, EnhancementWorkerPool, EnhancementProcessor, EnhancementConfig
+)
+from metamemory.transcription.confidence import should_enhance
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,6 +46,7 @@ class SegmentResult:
     segment_index: int  # Position in the phrase for UI matching
     is_final: bool  # True if this segment is from a completed phrase
     phrase_start: bool = False  # True if this is the first segment of a new phrase
+    enhanced: bool = False  # True if this segment was enhanced by background processor
 
 
 class AccumulatingTranscriptionProcessor:
@@ -127,6 +139,34 @@ class AccumulatingTranscriptionProcessor:
         # Segment index tracking to prevent duplicate emission
         # Tracks the last segment index that was emitted to the UI
         self._last_emitted_segment_index = -1  # -1 means nothing emitted yet
+        
+        # Enhancement system integration
+        try:
+            config = get_config()
+            self._enhancement_config = config.enhancement
+            self._enhancement_queue = EnhancementQueue(
+                max_size=100,
+                confidence_threshold=self._enhancement_config.confidence_threshold
+            )
+            enhancement_config = EnhancementConfig(
+                confidence_threshold=self._enhancement_config.confidence_threshold,
+                num_workers=self._enhancement_config.num_workers,
+                enhancement_model=self._enhancement_config.enhancement_model
+            )
+            self._enhancement_worker_pool = EnhancementWorkerPool(
+                num_workers=self._enhancement_config.num_workers,
+                dynamic_scaling=self._enhancement_config.dynamic_scaling,
+                cpu_usage_threshold=self._enhancement_config.cpu_usage_threshold
+            )
+            self._enhancement_processor = EnhancementProcessor(config=enhancement_config)
+            self._enhancement_thread: Optional[threading.Thread] = None
+            self._enhancement_stop_event = threading.Event()
+            self._enhancement_event_loop: Optional[asyncio.AbstractEventLoop] = None
+            self._enhancement_enabled = True
+            print(f"DEBUG: Enhancement system initialized (threshold: {self._enhancement_config.confidence_threshold*100}%)")
+        except Exception as e:
+            print(f"DEBUG: Enhancement system not available: {e}")
+            self._enhancement_enabled = False
     
     def load_model(self, progress_callback: Optional[Callable[[int], None]] = None) -> None:
         """Load the Whisper model."""
@@ -170,6 +210,10 @@ class AccumulatingTranscriptionProcessor:
         self._processing_thread.start()
         print("DEBUG: Accumulating transcription processor started")
         print(f"DEBUG: Window size: {self.window_size}s, Update frequency: {self.update_frequency}s, Silence timeout: {self.silence_timeout}s")
+        
+        # Start enhancement processing
+        if self._enhancement_enabled:
+            self._start_enhancement_processing()
     
     def stop(self) -> None:
         """Stop the transcription processor."""
@@ -183,6 +227,10 @@ class AccumulatingTranscriptionProcessor:
         # Wait for processing thread to finish
         if self._processing_thread:
             self._processing_thread.join(timeout=5.0)
+        
+        # Stop enhancement processing
+        if self._enhancement_enabled:
+            self._stop_enhancement_processing()
         
         # Don't transcribe remaining audio here - it's unsafe and can cause GGML_ASSERT failure
         # The processing loop will handle any remaining audio or we accept that the last phrase is lost
@@ -421,6 +469,25 @@ class AccumulatingTranscriptionProcessor:
                         phrase_start=(i == 0 and phrase_start)
                     )
                     
+                    # Check if segment should be enhanced (confidence below threshold)
+                    if self._enhancement_enabled and self._enhancement_queue:
+                        should_enhance_flag = should_enhance(
+                            {'confidence': result.confidence, 'text': result.text, 'id': f"seg_{i}"},
+                            threshold=self._enhancement_config.confidence_threshold
+                        )
+                        print(f"[ENHANCEMENT CHECK] seg={i}, text='{seg_text[:30]}', conf={result.confidence}%, threshold={self._enhancement_config.confidence_threshold*100}%, should_enhance={should_enhance_flag}")
+                        
+                        if should_enhance_flag:
+                            enhancement_segment = {
+                                'id': f"seg_{i}_{time.time()}",
+                                'text': seg_text,
+                                'confidence': result.confidence,
+                                'start': segment_start,
+                                'end': segment_end
+                            }
+                            enqueued = self._enhancement_queue.enqueue(enhancement_segment)
+                            print(f"[ENHANCEMENT {'ENQUEUE' if enqueued else 'FAILED'}] segment {i} queued={enqueued}")
+                    
                     # Queue for UI
                     self._result_queue.put(result)
                     print(f"DEBUG: Queued segment {i}: '{seg_text[:30]}...' (qsize: {self._result_queue.qsize()})")
@@ -459,7 +526,7 @@ class AccumulatingTranscriptionProcessor:
     def get_stats(self) -> dict:
         """Get processor statistics."""
         buffer_duration = len(self._phrase_bytes) / (16000 * 2) if self._phrase_bytes else 0
-        return {
+        stats = {
             "is_running": self._is_running,
             "model_size": self.model_size,
             "window_size": self.window_size,
@@ -469,6 +536,140 @@ class AccumulatingTranscriptionProcessor:
             "transcription_count": self._transcription_count,
             "pending_results": self._result_queue.qsize(),
         }
+        if self._enhancement_enabled and self._enhancement_queue:
+            stats["enhancement"] = self._enhancement_queue.get_status()
+        return stats
+    
+    def _start_enhancement_processing(self) -> None:
+        """Start the background enhancement processing thread."""
+        if not self._enhancement_enabled:
+            return
+        
+        if self._enhancement_thread is not None and self._enhancement_thread.is_alive():
+            print("DEBUG: Enhancement processing thread already running")
+            return
+        
+        self._enhancement_stop_event.clear()
+        self._enhancement_thread = threading.Thread(
+            target=self._enhancement_processing_loop,
+            daemon=True,
+            name="EnhancementProcessor"
+        )
+        self._enhancement_thread.start()
+        
+        # Register completion callback
+        self._enhancement_worker_pool.add_completion_callback(self._on_enhancement_complete)
+        
+        # Start worker pool
+        self._enhancement_worker_pool.start()
+        
+        print(f"DEBUG: Started enhancement processing (threshold: {self._enhancement_config.confidence_threshold*100}%)")
+    
+    def _stop_enhancement_processing(self, timeout: float = 30.0) -> None:
+        """Stop the background enhancement processing thread."""
+        if self._enhancement_thread is None:
+            return
+        
+        self._enhancement_stop_event.set()
+        
+        # Wait for processing thread to stop
+        self._enhancement_thread.join(timeout=2.0)
+        self._enhancement_thread = None
+        
+        # Stop worker pool
+        if self._enhancement_worker_pool.is_running:
+            if self._enhancement_event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._enhancement_worker_pool.stop(timeout=timeout),
+                    self._enhancement_event_loop
+                )
+        
+        print("DEBUG: Stopped enhancement processing")
+    
+    def _enhancement_processing_loop(self) -> None:
+        """Background thread that processes enhancement queue."""
+        if not self._enhancement_enabled:
+            return
+        
+        # Create event loop for this thread
+        self._enhancement_event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._enhancement_event_loop)
+        
+        print("DEBUG: Enhancement processing loop started")
+        
+        try:
+            while not self._enhancement_stop_event.is_set():
+                # Check if there are segments to enhance
+                segment = self._enhancement_queue.dequeue()
+                
+                if segment is not None:
+                    print(f"[ENHANCEMENT PROCESS] Dequeued segment {segment['id']}")
+                    
+                    # Process segment asynchronously
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._enhancement_worker_pool.process_segment_async(
+                            segment,
+                            self._enhancement_processor
+                        ),
+                        self._enhancement_event_loop
+                    )
+                    
+                    # Handle future errors
+                    def future_done_callback(f):
+                        try:
+                            f.result()
+                        except Exception as e:
+                            print(f"[ENHANCEMENT ERROR] Future error: {e}")
+                    
+                    future.add_done_callback(future_done_callback)
+                else:
+                    # No segments to process, sleep briefly
+                    time.sleep(0.05)
+                    
+        except Exception as e:
+            print(f"[ENHANCEMENT ERROR] Processing loop error: {e}")
+        finally:
+            # Close event loop
+            if self._enhancement_event_loop:
+                self._enhancement_event_loop.close()
+                self._enhancement_event_loop = None
+            print("DEBUG: Enhancement processing loop stopped")
+    
+    def _on_enhancement_complete(self, result: Dict[str, Any]) -> None:
+        """Handle completion of segment enhancement."""
+        segment_id = result.get('id', 'unknown')
+        
+        if result.get('enhanced', False):
+            enhanced_text = result.get('enhanced_text', result.get('original_text', ''))
+            original_text = result.get('original_text', '')
+            confidence = result.get('confidence', 0)
+            
+            print(f"[ENHANCEMENT COMPLETE] segment {segment_id}: '{original_text}' -> '{enhanced_text}' (conf: {confidence}%)")
+            
+            # Create enhanced SegmentResult
+            enhanced_result = SegmentResult(
+                text=enhanced_text,
+                confidence=int(confidence),
+                start_time=result.get('start', 0.0),
+                end_time=result.get('end', 0.0),
+                segment_index=0,  # Will be ignored since we're replacing by text match
+                is_final=True,
+                phrase_start=False,
+                enhanced=True
+            )
+            
+            # Queue for UI display
+            self._result_queue.put(enhanced_result)
+            
+            # Trigger callback if registered
+            if self.on_result:
+                try:
+                    self.on_result(enhanced_result)
+                except Exception as e:
+                    print(f"[ENHANCEMENT ERROR] Callback failed: {e}")
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            print(f"[ENHANCEMENT FAILED] segment {segment_id}: {error_msg}")
 
 
 # Example usage
