@@ -405,6 +405,8 @@ class RealTimeTranscriptionProcessor:
         }, 
         threshold=self._enhancement_config.confidence_threshold)
         
+        logger.info(f"[ENHANCEMENT CHECK] chunk={self._chunk_counter}, text='{committed_text[:30]}', confidence={avg_confidence}%, threshold={self._enhancement_config.confidence_threshold*100}%, should_enhance={should_enhance_flag}")
+        
         # Queue for enhancement if eligible
         if should_enhance_flag:
             enhancement_segment = {

@@ -97,7 +97,7 @@ class EnhancementQueue:
             
         self.queue.put(segment)
         self.total_enqueued += 1
-        logger.debug(f"Enqueued segment {segment['id']} (queue size: {self.queue.qsize()}")
+        logger.info(f"[ENHANCEMENT ENQUEUE] Enqueued segment {segment['id']} (queue size: {self.queue.qsize()})")
         return True
     
     def dequeue(self) -> Optional[Dict[str, Any]]:
@@ -110,9 +110,10 @@ class EnhancementQueue:
         try:
             segment = self.queue.get_nowait()
             self.total_processed += 1
-            logger.debug(f"Dequeued segment {segment['id']} (queue size: {self.queue.qsize()}")
+            logger.info(f"[ENHANCEMENT DEQUEUE] Dequeued segment {segment['id']} (queue size: {self.queue.qsize()})")
             return segment
         except:
+            logger.debug("[ENHANCEMENT DEQUEUE] Queue is empty")
             return None
     
     def get_status(self) -> Dict[str, Any]:
@@ -246,9 +247,11 @@ class EnhancementWorkerPool:
         else:
             self.tasks_after_recording += 1
 
+        logger.info(f"[ENHANCEMENT PROCESS] Starting segment {segment_id} (during recording: {is_during_recording}, retry: {retry_count})")
+
         # Check if pool is running
         if not self.is_running:
-            logger.warning(f"Worker pool not running, skipping segment {segment_id}")
+            logger.warning(f"[ENHANCEMENT PROCESS] Worker pool not running, skipping segment {segment_id}")
             return {
                 'id': segment_id,
                 'error': 'Worker pool not running',
