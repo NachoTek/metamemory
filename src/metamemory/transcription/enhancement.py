@@ -4164,6 +4164,473 @@ class GoNoGoValidator:
         
         return "\n".join(lines)
     
+    # =========================================================================
+    # Fallback Guidance and Recommendations
+    # =========================================================================
+    
+    def get_single_mode_fallback_guidance(self, result: ValidationResult) -> FallbackGuidance:
+        """
+        Get guidance for falling back to single-mode transcription.
+        
+        Args:
+            result: ValidationResult that triggered fallback
+            
+        Returns:
+            FallbackGuidance: Detailed single-mode fallback guidance
+        """
+        guidance = FallbackGuidance()
+        guidance.fallback_type = "single_mode"
+        guidance.fallback_reason = (
+            "Dual-mode enhancement does not provide sufficient benefit to justify "
+            "the additional complexity and resource usage."
+        )
+        guidance.primary_recommendation = (
+            "Use single-mode (real-time only) transcription as the default. "
+            "This provides the best balance of simplicity, resource usage, and latency."
+        )
+        
+        # Add specific guidance based on what failed
+        if not result.accuracy_pass:
+            guidance.resource_suggestions.append(
+                "Dual-mode accuracy improvement is insufficient. "
+                "Focus on improving real-time model quality instead."
+            )
+        
+        if not result.improved_pass:
+            guidance.resource_suggestions.append(
+                f"Only {result.improved_segments_percent:.0f}% of segments improved. "
+                "The confidence threshold may need adjustment."
+            )
+        
+        if not result.degraded_pass:
+            guidance.resource_suggestions.append(
+                f"{result.degraded_segments_percent:.0f}% of segments degraded. "
+                "Dual-mode may be causing quality regression."
+            )
+        
+        # Configuration for single-mode
+        guidance.config_adjustments = {
+            'mode': 'single',
+            'enhancement_enabled': False,
+            'model': 'base',  # Use base model for real-time
+            'workers': 0,  # No enhancement workers
+        }
+        
+        guidance.next_steps = [
+            "Disable dual-mode enhancement in configuration",
+            "Monitor single-mode accuracy and performance",
+            "Consider upgrading real-time model size if accuracy is insufficient",
+            "Review audio quality and noise levels",
+            "Re-evaluate dual-mode after real-time improvements",
+        ]
+        
+        return guidance
+    
+    def get_optimized_dual_guidance(self, result: ValidationResult) -> FallbackGuidance:
+        """
+        Get guidance for optimized dual-mode with performance constraints.
+        
+        Args:
+            result: ValidationResult with performance issues
+            
+        Returns:
+            FallbackGuidance: Guidance for optimized dual-mode
+        """
+        guidance = FallbackGuidance()
+        guidance.fallback_type = "optimized_dual"
+        guidance.fallback_reason = (
+            "Dual-mode provides accuracy benefits but has performance or resource constraints."
+        )
+        guidance.primary_recommendation = (
+            "Optimize dual-mode configuration to balance accuracy benefits with resource usage. "
+            "Use dual-mode selectively for important recordings."
+        )
+        
+        # Resource optimization suggestions
+        if not result.cpu_pass:
+            guidance.resource_suggestions.extend([
+                "Reduce enhancement workers from current level",
+                "Use base model instead of medium for enhancement",
+                "Process enhancement only during idle periods",
+                "Implement batch processing instead of streaming enhancement",
+                "Add CPU throttling for enhancement tasks",
+            ])
+        
+        if not result.ram_pass:
+            guidance.resource_suggestions.extend([
+                "Limit concurrent enhancement tasks",
+                "Use memory-mapped model loading",
+                "Clear model cache between sessions",
+                "Reduce max queue size to limit memory footprint",
+                "Consider streaming model loading",
+            ])
+        
+        if not result.performance_pass:
+            guidance.resource_suggestions.extend([
+                "Optimize audio chunk size (try 2-4 second chunks)",
+                "Use GPU acceleration if available",
+                "Implement lazy model loading",
+                "Reduce enhancement model complexity",
+                "Consider async enhancement pipeline",
+            ])
+        
+        # Optimized configuration
+        guidance.config_adjustments = {
+            'mode': 'dual_optimized',
+            'enhancement_enabled': True,
+            'confidence_threshold': 0.65,  # More selective
+            'num_workers': max(1, 2),  # Reduced workers
+            'enhancement_model': 'base',  # Smaller model
+            'max_queue_size': 30,  # Smaller queue
+            'dynamic_scaling': True,  # Enable scaling
+            'cpu_threshold': 0.7,  # More conservative
+            'ram_threshold': 0.75,
+        }
+        
+        # Adjust based on specific issues
+        if result.cpu_usage_percent > 70:
+            guidance.config_adjustments['num_workers'] = 1
+        
+        if result.enhancement_completion_time > 30:
+            guidance.config_adjustments['confidence_threshold'] = 0.6  # More aggressive
+        
+        guidance.next_steps = [
+            "Apply optimized configuration",
+            "Monitor resource usage closely",
+            "Set up alerts for CPU/RAM thresholds",
+            "Test with representative recordings",
+            "Implement graceful degradation handlers",
+            "Re-run validation after optimization",
+        ]
+        
+        return guidance
+    
+    def get_conditional_dual_guidance(self, result: ValidationResult) -> FallbackGuidance:
+        """
+        Get guidance for conditional dual-mode use.
+        
+        Args:
+            result: ValidationResult with partial issues
+            
+        Returns:
+            FallbackGuidance: Guidance for conditional dual-mode
+        """
+        guidance = FallbackGuidance()
+        guidance.fallback_type = "conditional_dual"
+        guidance.fallback_reason = (
+            "Dual-mode shows promise but has some limitations. "
+            "Use with monitoring and potential constraints."
+        )
+        guidance.primary_recommendation = (
+            "Enable dual-mode with monitoring and user controls. "
+            "Allow users to disable enhancement for low-resource situations."
+        )
+        
+        # Monitoring suggestions
+        guidance.resource_suggestions.extend([
+            "Set up real-time CPU/RAM monitoring",
+            "Add UI indicator for enhancement status",
+            "Implement user toggle for dual-mode",
+            "Monitor enhancement queue depth",
+            "Track enhancement success rate",
+        ])
+        
+        # Conditional configuration
+        guidance.config_adjustments = {
+            'mode': 'dual_conditional',
+            'enhancement_enabled': True,
+            'confidence_threshold': 0.7,
+            'num_workers': 2,
+            'enhancement_model': 'base',
+            'max_queue_size': 50,
+            'user_control_enabled': True,  # Allow user toggle
+            'auto_disable_threshold': {
+                'cpu_percent': 85,
+                'ram_percent': 90,
+                'queue_depth': 80,
+            },
+        }
+        
+        guidance.next_steps = [
+            "Implement monitoring dashboard",
+            "Add user controls for enhancement",
+            "Set up auto-disable triggers",
+            "Create fallback to single-mode on resource pressure",
+            "Log enhancement metrics for analysis",
+            "Periodically re-validate dual-mode performance",
+        ]
+        
+        return guidance
+    
+    def get_resource_optimization_suggestions(
+        self,
+        cpu_percent: float,
+        ram_gb: float,
+        completion_time: float
+    ) -> List[str]:
+        """
+        Get specific resource optimization suggestions.
+        
+        Args:
+            cpu_percent: Current CPU usage percentage
+            ram_gb: Current RAM usage in GB
+            completion_time: Current completion time in seconds
+            
+        Returns:
+            List[str]: List of optimization suggestions
+        """
+        suggestions = []
+        
+        # CPU optimization
+        if cpu_percent > 90:
+            suggestions.extend([
+                "🔴 CRITICAL: CPU usage is critically high",
+                "Immediately reduce worker count to 1",
+                "Consider disabling enhancement entirely",
+                "Check for other CPU-intensive processes",
+            ])
+        elif cpu_percent > 80:
+            suggestions.extend([
+                "🟠 WARNING: CPU usage is high",
+                "Reduce worker count by 50%",
+                "Use smaller enhancement model",
+                "Implement CPU throttling",
+            ])
+        elif cpu_percent > 70:
+            suggestions.extend([
+                "🟡 CPU usage is elevated",
+                "Monitor for spikes",
+                "Consider dynamic worker scaling",
+            ])
+        
+        # RAM optimization
+        if ram_gb > 6:
+            suggestions.extend([
+                "🔴 CRITICAL: RAM usage is critically high",
+                "Clear model cache immediately",
+                "Reduce queue size",
+                "Consider streaming model loading",
+            ])
+        elif ram_gb > 4:
+            suggestions.extend([
+                "🟠 WARNING: RAM usage is high",
+                "Limit concurrent tasks",
+                "Use memory-efficient model variants",
+                "Clear caches between sessions",
+            ])
+        elif ram_gb > 3:
+            suggestions.extend([
+                "🟡 RAM usage is elevated",
+                "Monitor for memory leaks",
+                "Consider model unloading when idle",
+            ])
+        
+        # Completion time optimization
+        if completion_time > 60:
+            suggestions.extend([
+                "🔴 CRITICAL: Enhancement taking too long",
+                "Significantly reduce enhancement scope",
+                "Consider batch processing",
+                "Review model size and complexity",
+            ])
+        elif completion_time > 30:
+            suggestions.extend([
+                "🟠 WARNING: Enhancement slower than target",
+                "Reduce enhancement scope",
+                "Optimize chunk sizes",
+                "Consider GPU acceleration",
+            ])
+        elif completion_time < 10:
+            suggestions.extend([
+                "⚠️ Enhancement completed very quickly",
+                "Verify all segments are being processed",
+                "Check if enhancement is actually occurring",
+            ])
+        
+        return suggestions
+    
+    def get_next_steps_recommendations(
+        self,
+        result: ValidationResult,
+        guidance: FallbackGuidance
+    ) -> List[str]:
+        """
+        Get prioritized next steps based on validation result.
+        
+        Args:
+            result: ValidationResult to analyze
+            guidance: Associated FallbackGuidance
+            
+        Returns:
+            List[str]: Prioritized list of next steps
+        """
+        next_steps = []
+        
+        # Critical issues first
+        if result.decision == "no_go":
+            next_steps.extend([
+                "1. ⛔ CRITICAL: Do not deploy dual-mode in production",
+                "2. 🔍 Review failure reasons and understand root causes",
+                "3. 📊 Analyze segment-level data to identify patterns",
+                "4. ⚙️ Adjust configuration based on findings",
+                "5. 🔄 Re-run validation after changes",
+            ])
+            
+            if not result.accuracy_pass:
+                next_steps.append("6. 📉 Investigate why accuracy improvement is insufficient")
+            
+            if not result.improved_pass:
+                next_steps.append("6. 🎯 Review confidence threshold settings")
+        
+        elif result.decision == "conditional_go":
+            next_steps.extend([
+                "1. ✅ Dual-mode is approved with conditions",
+                "2. 📊 Implement monitoring and alerting",
+                "3. 🎛️ Add user controls for enhancement",
+                "4. 🔄 Set up automatic fallback mechanisms",
+                "5. 📈 Track metrics over time",
+                "6. 🔄 Re-validate periodically (weekly recommended)",
+            ])
+        
+        else:  # go
+            next_steps.extend([
+                "1. ✅ Dual-mode is approved for production",
+                "2. 📊 Set up baseline monitoring",
+                "3. 📈 Track accuracy metrics over time",
+                "4. 🔄 Schedule periodic validation reviews",
+                "5. 📝 Document configuration and decisions",
+            ])
+        
+        # Add specific recommendations based on warnings
+        if result.warnings:
+            next_steps.append("")
+            next_steps.append("⚠️ Address Warnings:")
+            for warning in result.warnings[:3]:  # Top 3 warnings
+                next_steps.append(f"   - {warning}")
+        
+        # Add suggestions based on improvement potential
+        interpretation = self.interpret_validation_result(result)
+        if interpretation['improvement_potential']:
+            next_steps.append("")
+            next_steps.append("💡 Improvement Opportunities:")
+            for opportunity in interpretation['improvement_potential'][:3]:
+                next_steps.append(f"   - {opportunity}")
+        
+        return next_steps
+    
+    def generate_fallback_report(
+        self,
+        result: ValidationResult
+    ) -> str:
+        """
+        Generate a comprehensive fallback guidance report.
+        
+        Args:
+            result: ValidationResult to generate report for
+            
+        Returns:
+            str: Detailed fallback report in markdown
+        """
+        guidance = self.get_fallback_guidance(result)
+        
+        lines = [
+            "# Fallback Guidance Report",
+            "",
+            f"**Validation Decision:** {result.decision.upper()}",
+            f"**Fallback Type:** {guidance.fallback_type}",
+            "",
+            "---",
+            "",
+            "## Summary",
+            "",
+            f"**Reason:** {guidance.fallback_reason}",
+            "",
+            f"**Primary Recommendation:** {guidance.primary_recommendation}",
+            "",
+        ]
+        
+        # Resource suggestions
+        if guidance.resource_suggestions:
+            lines.extend([
+                "## Resource Optimization Suggestions",
+                "",
+            ])
+            for suggestion in guidance.resource_suggestions:
+                lines.append(f"- {suggestion}")
+            lines.append("")
+        
+        # Configuration adjustments
+        if guidance.config_adjustments:
+            lines.extend([
+                "## Recommended Configuration",
+                "",
+                "```python",
+            ])
+            for key, value in guidance.config_adjustments.items():
+                if isinstance(value, str):
+                    lines.append(f'{key} = "{value}"')
+                elif isinstance(value, dict):
+                    lines.append(f'{key} = {json.dumps(value)}')
+                else:
+                    lines.append(f'{key} = {value}')
+            lines.extend([
+                "```",
+                "",
+            ])
+        
+        # Next steps
+        if guidance.next_steps:
+            next_steps = self.get_next_steps_recommendations(result, guidance)
+            lines.extend([
+                "## Next Steps",
+                "",
+            ])
+            for step in next_steps:
+                lines.append(step)
+            lines.append("")
+        
+        # Specific suggestions
+        suggestions = self.get_resource_optimization_suggestions(
+            result.cpu_usage_percent,
+            result.ram_usage_gb,
+            result.enhancement_completion_time
+        )
+        if suggestions:
+            lines.extend([
+                "## Resource-Specific Suggestions",
+                "",
+            ])
+            for suggestion in suggestions:
+                lines.append(f"- {suggestion}")
+            lines.append("")
+        
+        # Alternative approaches
+        if result.decision == "no_go":
+            lines.extend([
+                "## Alternative Approaches",
+                "",
+                "### Option 1: Single-Mode Only",
+                "",
+                "- Use real-time transcription without enhancement",
+                "- Simpler deployment and maintenance",
+                "- Lower resource requirements",
+                "",
+                "### Option 2: Post-Processing Enhancement",
+                "",
+                "- Enhance recordings after capture is complete",
+                "- No impact on real-time performance",
+                "- May miss real-time accuracy benefits",
+                "",
+                "### Option 3: Selective Enhancement",
+                "",
+                "- Enhance only user-selected segments",
+                "- Manual control over resource usage",
+                "- Best of both worlds for important content",
+                "",
+            ])
+        
+        return "\n".join(lines)
+    
     def get_validation_history(self) -> List[ValidationResult]:
         """
         Get all validation results.
