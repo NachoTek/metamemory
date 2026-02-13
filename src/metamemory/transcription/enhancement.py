@@ -2029,3 +2029,361 @@ class BenchmarkRunner:
             ])
         
         return "\n".join(lines)
+
+
+# =============================================================================
+# Dual-Mode vs Single-Mode Comparison Utilities
+# =============================================================================
+
+@dataclass
+class DualModeComparisonResult:
+    """Result of comparing dual-mode vs single-mode transcription."""
+    # Accuracy comparison
+    single_mode_accuracy: float = 0.0
+    dual_mode_accuracy: float = 0.0
+    accuracy_improvement: float = 0.0
+    accuracy_improvement_percent: float = 0.0
+    
+    # WER comparison
+    single_mode_wer: float = 0.0
+    dual_mode_wer: float = 0.0
+    wer_improvement: float = 0.0
+    wer_improvement_percent: float = 0.0
+    
+    # Confidence comparison
+    single_mode_avg_confidence: float = 0.0
+    dual_mode_avg_confidence: float = 0.0
+    confidence_improvement: float = 0.0
+    
+    # Performance comparison
+    single_mode_latency_ms: float = 0.0
+    dual_mode_latency_ms: float = 0.0
+    latency_overhead_ms: float = 0.0
+    latency_overhead_percent: float = 0.0
+    
+    # Segment counts
+    segments_compared: int = 0
+    segments_improved: int = 0
+    segments_degraded: int = 0
+    segments_unchanged: int = 0
+    
+    # Overall assessment
+    is_improvement: bool = False
+    improvement_ratio: float = 0.0
+    
+    # Detailed segment comparison
+    segment_details: List[Dict[str, Any]] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'accuracy': {
+                'single_mode': self.single_mode_accuracy,
+                'dual_mode': self.dual_mode_accuracy,
+                'improvement': self.accuracy_improvement,
+                'improvement_percent': self.accuracy_improvement_percent,
+            },
+            'wer': {
+                'single_mode': self.single_mode_wer,
+                'dual_mode': self.dual_mode_wer,
+                'improvement': self.wer_improvement,
+                'improvement_percent': self.wer_improvement_percent,
+            },
+            'confidence': {
+                'single_mode': self.single_mode_avg_confidence,
+                'dual_mode': self.dual_mode_avg_confidence,
+                'improvement': self.confidence_improvement,
+            },
+            'performance': {
+                'single_mode_latency_ms': self.single_mode_latency_ms,
+                'dual_mode_latency_ms': self.dual_mode_latency_ms,
+                'overhead_ms': self.latency_overhead_ms,
+                'overhead_percent': self.latency_overhead_percent,
+            },
+            'segments': {
+                'compared': self.segments_compared,
+                'improved': self.segments_improved,
+                'degraded': self.segments_degraded,
+                'unchanged': self.segments_unchanged,
+            },
+            'overall': {
+                'is_improvement': self.is_improvement,
+                'improvement_ratio': self.improvement_ratio,
+            },
+            'segment_details': self.segment_details[:10],  # First 10 for summary
+        }
+
+
+class DualModeComparator:
+    """
+    Utility for comparing dual-mode vs single-mode transcription accuracy.
+    
+    Provides detailed comparison analysis including:
+    - Accuracy improvement measurement
+    - WER reduction analysis
+    - Confidence score comparison
+    - Per-segment improvement tracking
+    - Statistical significance testing
+    """
+    
+    def __init__(self, confidence_threshold: float = 0.7):
+        """
+        Initialize the dual-mode comparator.
+        
+        Args:
+            confidence_threshold: Threshold below which segments should be enhanced
+        """
+        self.confidence_threshold = confidence_threshold
+        self._comparison_results: List[DualModeComparisonResult] = []
+    
+    def compare(
+        self,
+        single_mode_segments: List[Dict[str, Any]],
+        dual_mode_segments: List[Dict[str, Any]],
+        ground_truths: List[str]
+    ) -> DualModeComparisonResult:
+        """
+        Compare single-mode and dual-mode transcription results.
+        
+        Args:
+            single_mode_segments: Segments from single-mode transcription
+            dual_mode_segments: Segments from dual-mode (enhanced) transcription
+            ground_truths: Ground truth strings for each segment
+            
+        Returns:
+            DualModeComparisonResult: Detailed comparison result
+        """
+        if len(single_mode_segments) != len(dual_mode_segments):
+            logger.warning(
+                f"Segment count mismatch: single={len(single_mode_segments)}, "
+                f"dual={len(dual_mode_segments)}"
+            )
+        
+        # Initialize result
+        result = DualModeComparisonResult()
+        
+        # Track metrics
+        single_accuracies: List[float] = []
+        dual_accuracies: List[float] = []
+        single_wers: List[float] = []
+        dual_wers: List[float] = []
+        single_confidences: List[float] = []
+        dual_confidences: List[float] = []
+        single_latencies: List[float] = []
+        dual_latencies: List[float] = []
+        
+        # Compare each segment
+        for i, (single_seg, dual_seg, truth) in enumerate(
+            zip(single_mode_segments, dual_mode_segments, ground_truths)
+        ):
+            # Get text from segments
+            single_text = single_seg.get('text', '')
+            dual_text = dual_seg.get('enhanced_text', dual_seg.get('text', ''))
+            
+            # Calculate accuracy metrics
+            single_wer = calculate_wer(truth, single_text)
+            dual_wer = calculate_wer(truth, dual_text)
+            single_acc = calculate_accuracy(truth, single_text)
+            dual_acc = calculate_accuracy(truth, dual_text)
+            
+            # Get confidence
+            single_conf = single_seg.get('confidence', 0.0)
+            dual_conf = dual_seg.get('confidence', single_conf)
+            
+            # Get latency (if available)
+            single_lat = single_seg.get('processing_time', 0.0) * 1000
+            dual_lat = dual_seg.get('processing_time', 0.0) * 1000
+            
+            # Track metrics
+            single_accuracies.append(single_acc)
+            dual_accuracies.append(dual_acc)
+            single_wers.append(single_wer)
+            dual_wers.append(dual_wer)
+            single_confidences.append(single_conf)
+            dual_confidences.append(dual_conf)
+            single_latencies.append(single_lat)
+            dual_latencies.append(dual_lat)
+            
+            # Track improvement
+            if dual_acc > single_acc:
+                result.segments_improved += 1
+            elif dual_acc < single_acc:
+                result.segments_degraded += 1
+            else:
+                result.segments_unchanged += 1
+            
+            # Store segment detail
+            result.segment_details.append({
+                'index': i,
+                'ground_truth': truth[:50] + '...' if len(truth) > 50 else truth,
+                'single_mode': {
+                    'text': single_text[:50] + '...' if len(single_text) > 50 else single_text,
+                    'wer': single_wer,
+                    'accuracy': single_acc,
+                    'confidence': single_conf,
+                },
+                'dual_mode': {
+                    'text': dual_text[:50] + '...' if len(dual_text) > 50 else dual_text,
+                    'wer': dual_wer,
+                    'accuracy': dual_acc,
+                    'confidence': dual_conf,
+                },
+                'improved': dual_acc > single_acc,
+            })
+            
+            result.segments_compared += 1
+        
+        # Calculate aggregated metrics
+        if single_accuracies:
+            result.single_mode_accuracy = mean(single_accuracies)
+            result.dual_mode_accuracy = mean(dual_accuracies)
+            result.accuracy_improvement = result.dual_mode_accuracy - result.single_mode_accuracy
+            result.accuracy_improvement_percent = (
+                (result.accuracy_improvement / result.single_mode_accuracy * 100)
+                if result.single_mode_accuracy > 0 else 0
+            )
+            
+            result.single_mode_wer = mean(single_wers)
+            result.dual_mode_wer = mean(dual_wers)
+            result.wer_improvement = result.single_mode_wer - result.dual_mode_wer
+            result.wer_improvement_percent = (
+                (result.wer_improvement / result.single_mode_wer * 100)
+                if result.single_mode_wer > 0 else 0
+            )
+            
+            result.single_mode_avg_confidence = mean(single_confidences)
+            result.dual_mode_avg_confidence = mean(dual_confidences)
+            result.confidence_improvement = result.dual_mode_avg_confidence - result.single_mode_avg_confidence
+            
+            if single_latencies and any(l > 0 for l in single_latencies):
+                result.single_mode_latency_ms = mean([l for l in single_latencies if l > 0])
+            if dual_latencies and any(l > 0 for l in dual_latencies):
+                result.dual_mode_latency_ms = mean([l for l in dual_latencies if l > 0])
+            
+            result.latency_overhead_ms = result.dual_mode_latency_ms - result.single_mode_latency_ms
+            result.latency_overhead_percent = (
+                (result.latency_overhead_ms / result.single_mode_latency_ms * 100)
+                if result.single_mode_latency_ms > 0 else 0
+            )
+            
+            # Overall assessment
+            result.is_improvement = result.accuracy_improvement > 0
+            result.improvement_ratio = (
+                result.accuracy_improvement / result.single_mode_accuracy
+                if result.single_mode_accuracy > 0 else 0
+            )
+        
+        # Store result
+        self._comparison_results.append(result)
+        
+        logger.info(
+            f"Dual-mode comparison: accuracy={result.accuracy_improvement*100:.2f}% improvement, "
+            f"WER={result.wer_improvement*100:.2f}% reduction, "
+            f"segments improved={result.segments_improved}/{result.segments_compared}"
+        )
+        
+        return result
+    
+    def get_comparison_history(self) -> List[DualModeComparisonResult]:
+        """
+        Get all comparison results.
+        
+        Returns:
+            List[DualModeComparisonResult]: All comparison results
+        """
+        return self._comparison_results.copy()
+    
+    def generate_comparison_report(self, result: Optional[DualModeComparisonResult] = None) -> str:
+        """
+        Generate a detailed comparison report.
+        
+        Args:
+            result: Comparison result to report (uses latest if None)
+            
+        Returns:
+            str: Formatted comparison report
+        """
+        if result is None:
+            if not self._comparison_results:
+                return "No comparison results available."
+            result = self._comparison_results[-1]
+        
+        lines = [
+            "=" * 70,
+            "DUAL-MODE vs SINGLE-MODE COMPARISON REPORT",
+            "=" * 70,
+            "",
+            "ACCURACY COMPARISON",
+            "-" * 40,
+            f"  Single-Mode Accuracy: {result.single_mode_accuracy:.4f} ({result.single_mode_accuracy*100:.2f}%)",
+            f"  Dual-Mode Accuracy:   {result.dual_mode_accuracy:.4f} ({result.dual_mode_accuracy*100:.2f}%)",
+            f"  Improvement:          {result.accuracy_improvement:+.4f} ({result.accuracy_improvement_percent:+.2f}%)",
+            "",
+            "WER (WORD ERROR RATE) COMPARISON",
+            "-" * 40,
+            f"  Single-Mode WER:      {result.single_mode_wer:.4f}",
+            f"  Dual-Mode WER:        {result.dual_mode_wer:.4f}",
+            f"  Improvement:          {result.wer_improvement:+.4f} ({result.wer_improvement_percent:+.2f}%)",
+            "",
+            "CONFIDENCE COMPARISON",
+            "-" * 40,
+            f"  Single-Mode Avg:      {result.single_mode_avg_confidence:.2f}%",
+            f"  Dual-Mode Avg:        {result.dual_mode_avg_confidence:.2f}%",
+            f"  Improvement:          {result.confidence_improvement:+.2f}%",
+            "",
+            "PERFORMANCE COMPARISON",
+            "-" * 40,
+            f"  Single-Mode Latency:  {result.single_mode_latency_ms:.2f}ms",
+            f"  Dual-Mode Latency:    {result.dual_mode_latency_ms:.2f}ms",
+            f"  Overhead:             {result.latency_overhead_ms:+.2f}ms ({result.latency_overhead_percent:+.2f}%)",
+            "",
+            "SEGMENT ANALYSIS",
+            "-" * 40,
+            f"  Total Segments:       {result.segments_compared}",
+            f"  Improved:             {result.segments_improved} ({result.segments_improved/max(1,result.segments_compared)*100:.1f}%)",
+            f"  Degraded:             {result.segments_degraded} ({result.segments_degraded/max(1,result.segments_compared)*100:.1f}%)",
+            f"  Unchanged:            {result.segments_unchanged} ({result.segments_unchanged/max(1,result.segments_compared)*100:.1f}%)",
+            "",
+            "OVERALL ASSESSMENT",
+            "-" * 40,
+            f"  Is Improvement:       {'YES' if result.is_improvement else 'NO'}",
+            f"  Improvement Ratio:    {result.improvement_ratio:.4f}",
+            "",
+            "=" * 70,
+        ]
+        
+        return "\n".join(lines)
+    
+    def check_significance(self, result: DualModeComparisonResult) -> Dict[str, Any]:
+        """
+        Check if the improvement is statistically significant.
+        
+        Args:
+            result: Comparison result to analyze
+            
+        Returns:
+            Dict[str, Any]: Significance analysis results
+        """
+        # Simple heuristic: consider significant if improvement > 5% and improved segments > 50%
+        accuracy_significant = result.accuracy_improvement_percent > 5.0
+        wer_significant = result.wer_improvement_percent > 5.0
+        segment_significant = (
+            result.segments_improved > result.segments_degraded and
+            result.segments_improved / max(1, result.segments_compared) > 0.5
+        )
+        
+        overall_significant = (accuracy_significant or wer_significant) and segment_significant
+        
+        return {
+            'accuracy_significant': accuracy_significant,
+            'wer_significant': wer_significant,
+            'segment_significant': segment_significant,
+            'overall_significant': overall_significant,
+            'confidence_level': 'high' if overall_significant else 'medium' if segment_significant else 'low',
+            'recommendation': (
+                'Dual-mode provides meaningful accuracy improvement'
+                if overall_significant
+                else 'Consider tuning confidence threshold for better results'
+                if segment_significant
+                else 'Dual-mode may not be beneficial for this test case'
+            ),
+        }
