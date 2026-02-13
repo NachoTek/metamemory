@@ -3,17 +3,24 @@ Enhancement module for dual-mode transcription processing.
 
 This module implements the enhancement architecture for processing low-confidence
 segments using background workers without blocking real-time transcription.
+
+Includes accuracy measurement and benchmarking utilities for dual-mode validation.
 """
 
 import asyncio
 import logging
 from queue import Queue
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import time
 import psutil
+import json
+import os
+from datetime import datetime
+from statistics import mean, stdev
+from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +173,15 @@ class EnhancementWorkerPool:
                  dynamic_scaling: bool = True,
                  cpu_usage_threshold: float = 0.8,
                  ram_usage_threshold: float = 0.85,
-                 worker_scaling_algorithm: str = "adaptive"):
+                 worker_scaling_algorithm: str = "adaptive",
+                 enable_graceful_degradation: bool = True,
+                 degradation_cpu_threshold: float = 0.9,
+                 degradation_ram_threshold: float = 0.9,
+                 degradation_strategy: str = "reduce_workers",
+                 fallback_on_failure: bool = True,
+                 max_retries_before_fallback: int = 2,
+                 degradation_logging: bool = True,
+                 queue_overflow_strategy: str = "drop_oldest"):
         """
         Initialize the worker pool with specified number of workers.
 
@@ -178,6 +193,14 @@ class EnhancementWorkerPool:
             cpu_usage_threshold: CPU usage threshold for scaling (default: 0.8)
             ram_usage_threshold: RAM usage threshold for scaling (default: 0.85)
             worker_scaling_algorithm: Scaling algorithm - "adaptive", "linear", or "none" (default: "adaptive")
+            enable_graceful_degradation: Enable graceful degradation under constraints (default: True)
+            degradation_cpu_threshold: CPU threshold for degradation mode (default: 0.9)
+            degradation_ram_threshold: RAM threshold for degradation mode (default: 0.9)
+            degradation_strategy: Strategy for handling degradation (default: "reduce_workers")
+            fallback_on_failure: Fall back to original on failure (default: True)
+            max_retries_before_fallback: Max retries before fallback (default: 2)
+            degradation_logging: Enable detailed degradation logging (default: True)
+            queue_overflow_strategy: Strategy for queue overflow (default: "drop_oldest")
         """
         self.num_workers = num_workers
         self.min_workers = min_workers
@@ -186,6 +209,16 @@ class EnhancementWorkerPool:
         self.cpu_usage_threshold = cpu_usage_threshold
         self.ram_usage_threshold = ram_usage_threshold
         self.worker_scaling_algorithm = worker_scaling_algorithm
+        
+        # Graceful degradation configuration
+        self.enable_graceful_degradation = enable_graceful_degradation
+        self.degradation_cpu_threshold = degradation_cpu_threshold
+        self.degradation_ram_threshold = degradation_ram_threshold
+        self.degradation_strategy = degradation_strategy
+        self.fallback_on_failure = fallback_on_failure
+        self.max_retries = max_retries_before_fallback
+        self.degradation_logging = degradation_logging
+        self.queue_overflow_strategy = queue_overflow_strategy
 
         # Initialize executor with current worker count
         self.executor = ThreadPoolExecutor(max_workers=num_workers)
@@ -195,7 +228,6 @@ class EnhancementWorkerPool:
         self.completed_tasks = 0
         self.failed_tasks = 0
         self.retry_count = 0
-        self.max_retries = 2
 
         # Async task tracking
         self.async_tasks: List[asyncio.Task] = []
@@ -204,6 +236,16 @@ class EnhancementWorkerPool:
         # Worker pool state
         self.is_running = False
         self._scaling_lock = asyncio.Lock()
+        
+        # Degradation state tracking
+        self._degradation_mode = False
+        self._degradation_start_time: Optional[float] = None
+        self._degradation_events: List[Dict[str, Any]] = []
+        self._max_degradation_events = 100
+        self._segments_skipped_during_degradation = 0
+        self._segments_fallback_during_degradation = 0
+        self._last_degradation_check = 0.0
+        self._degradation_check_interval = 5.0  # Check every 5 seconds
 
         # Performance metrics
         self.task_start_times: Dict[str, float] = {}
@@ -1159,3 +1201,608 @@ class TranscriptUpdater:
         return {
             'pending_updates': len(self.updates)
         }
+
+
+# =============================================================================
+# WER (Word Error Rate) Calculation Functions
+# =============================================================================
+
+def calculate_wer(reference: str, hypothesis: str) -> float:
+    """
+    Calculate Word Error Rate (WER) between reference and hypothesis.
+    
+    WER = (S + D + I) / N where:
+    - S = number of substitutions
+    - D = number of deletions
+    - I = number of insertions
+    - N = number of words in reference
+    
+    Args:
+        reference: Ground truth text
+        hypothesis: Transcribed text to evaluate
+        
+    Returns:
+        float: WER value (0.0 = perfect match, 1.0 = completely wrong)
+    """
+    ref_words = reference.lower().strip().split()
+    hyp_words = hypothesis.lower().strip().split()
+    
+    if not ref_words:
+        return 0.0 if not hyp_words else 1.0
+    
+    # Use dynamic programming for edit distance
+    d = np.zeros((len(ref_words) + 1, len(hyp_words) + 1), dtype=int)
+    
+    for i in range(len(ref_words) + 1):
+        d[i][0] = i
+    for j in range(len(hyp_words) + 1):
+        d[0][j] = j
+    
+    for i in range(1, len(ref_words) + 1):
+        for j in range(1, len(hyp_words) + 1):
+            if ref_words[i - 1] == hyp_words[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+            else:
+                substitution = d[i - 1][j - 1] + 1
+                insertion = d[i][j - 1] + 1
+                deletion = d[i - 1][j] + 1
+                d[i][j] = min(substitution, insertion, deletion)
+    
+    # Extract operations
+    i, j = len(ref_words), len(hyp_words)
+    substitutions = 0
+    insertions = 0
+    deletions = 0
+    
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and ref_words[i - 1] == hyp_words[j - 1]:
+            i -= 1
+            j -= 1
+        elif i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + 1:
+            substitutions += 1
+            i -= 1
+            j -= 1
+        elif j > 0 and d[i][j] == d[i][j - 1] + 1:
+            insertions += 1
+            j -= 1
+        elif i > 0 and d[i][j] == d[i - 1][j] + 1:
+            deletions += 1
+            i -= 1
+    
+    wer = (substitutions + deletions + insertions) / len(ref_words)
+    return min(1.0, wer)  # Cap at 1.0
+
+
+def calculate_cer(reference: str, hypothesis: str) -> float:
+    """
+    Calculate Character Error Rate (CER) between reference and hypothesis.
+    
+    Args:
+        reference: Ground truth text
+        hypothesis: Transcribed text to evaluate
+        
+    Returns:
+        float: CER value (0.0 = perfect match)
+    """
+    ref_chars = list(reference.lower().strip().replace(" ", ""))
+    hyp_chars = list(hypothesis.lower().strip().replace(" ", ""))
+    
+    if not ref_chars:
+        return 0.0 if not hyp_chars else 1.0
+    
+    # Use difflib for simpler calculation
+    matcher = SequenceMatcher(None, ref_chars, hyp_chars)
+    matches = sum(triple.size for triple in matcher.get_matching_blocks())
+    
+    errors = len(ref_chars) - matches + len(hyp_chars) - matches
+    cer = errors / len(ref_chars)
+    
+    return min(1.0, cer)
+
+
+def calculate_accuracy(reference: str, hypothesis: str) -> float:
+    """
+    Calculate accuracy as 1.0 - WER.
+    
+    Args:
+        reference: Ground truth text
+        hypothesis: Transcribed text to evaluate
+        
+    Returns:
+        float: Accuracy value (0.0-1.0, higher is better)
+    """
+    wer = calculate_wer(reference, hypothesis)
+    return max(0.0, 1.0 - wer)
+
+
+# =============================================================================
+# Benchmarking Data Structures
+# =============================================================================
+
+@dataclass
+class AccuracyMetrics:
+    """Accuracy metrics for a transcription mode."""
+    wer: float = 0.0
+    cer: float = 0.0
+    accuracy: float = 0.0
+    word_count: int = 0
+    segment_count: int = 0
+    avg_confidence: float = 0.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'wer': self.wer,
+            'cer': self.cer,
+            'accuracy': self.accuracy,
+            'word_count': self.word_count,
+            'segment_count': self.segment_count,
+            'avg_confidence': self.avg_confidence,
+        }
+
+
+@dataclass
+class PerformanceMetrics:
+    """Performance metrics for benchmarking."""
+    avg_latency_ms: float = 0.0
+    max_latency_ms: float = 0.0
+    min_latency_ms: float = float('inf')
+    total_time_s: float = 0.0
+    avg_cpu_percent: float = 0.0
+    max_cpu_percent: float = 0.0
+    avg_ram_mb: float = 0.0
+    max_ram_mb: float = 0.0
+    segments_processed: int = 0
+    throughput_segments_per_sec: float = 0.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'avg_latency_ms': self.avg_latency_ms,
+            'max_latency_ms': self.max_latency_ms,
+            'min_latency_ms': self.min_latency_ms if self.min_latency_ms != float('inf') else 0.0,
+            'total_time_s': self.total_time_s,
+            'avg_cpu_percent': self.avg_cpu_percent,
+            'max_cpu_percent': self.max_cpu_percent,
+            'avg_ram_mb': self.avg_ram_mb,
+            'max_ram_mb': self.max_ram_mb,
+            'segments_processed': self.segments_processed,
+            'throughput_segments_per_sec': self.throughput_segments_per_sec,
+        }
+
+
+@dataclass
+class BenchmarkResult:
+    """Complete benchmark result for a single test scenario."""
+    name: str
+    mode: str  # "single" or "dual"
+    accuracy: AccuracyMetrics = field(default_factory=AccuracyMetrics)
+    performance: PerformanceMetrics = field(default_factory=PerformanceMetrics)
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'name': self.name,
+            'mode': self.mode,
+            'accuracy': self.accuracy.to_dict(),
+            'performance': self.performance.to_dict(),
+            'timestamp': self.timestamp,
+            'metadata': self.metadata,
+        }
+
+
+@dataclass
+class BenchmarkConfig:
+    """Configuration for benchmarking runs."""
+    name: str = "default"
+    warmup_segments: int = 5
+    test_segments: int = 50
+    confidence_threshold: float = 0.7
+    collect_system_metrics: bool = True
+    metrics_interval_ms: int = 100
+    output_dir: str = "benchmarks"
+    save_results: bool = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'name': self.name,
+            'warmup_segments': self.warmup_segments,
+            'test_segments': self.test_segments,
+            'confidence_threshold': self.confidence_threshold,
+            'collect_system_metrics': self.collect_system_metrics,
+            'metrics_interval_ms': self.metrics_interval_ms,
+            'output_dir': self.output_dir,
+            'save_results': self.save_results,
+        }
+
+
+class AccuracyMeasurer:
+    """
+    Accuracy measurement utility for comparing transcriptions.
+    
+    Supports:
+    - WER (Word Error Rate) calculation
+    - CER (Character Error Rate) calculation
+    - Accuracy comparison between modes
+    - Aggregation across multiple segments
+    """
+    
+    def __init__(self):
+        """Initialize the accuracy measurer."""
+        self.reset()
+    
+    def reset(self) -> None:
+        """Reset all accumulated measurements."""
+        self._wer_values: List[float] = []
+        self._cer_values: List[float] = []
+        self._accuracy_values: List[float] = []
+        self._confidences: List[float] = []
+        self._word_counts: List[int] = []
+        self._segment_count: int = 0
+    
+    def measure(
+        self,
+        reference: str,
+        hypothesis: str,
+        confidence: Optional[float] = None
+    ) -> Dict[str, float]:
+        """
+        Measure accuracy for a single segment.
+        
+        Args:
+            reference: Ground truth text
+            hypothesis: Transcribed text
+            confidence: Optional confidence score for the hypothesis
+            
+        Returns:
+            Dict[str, float]: Metrics for this measurement
+        """
+        wer = calculate_wer(reference, hypothesis)
+        cer = calculate_cer(reference, hypothesis)
+        accuracy = calculate_accuracy(reference, hypothesis)
+        
+        self._wer_values.append(wer)
+        self._cer_values.append(cer)
+        self._accuracy_values.append(accuracy)
+        self._word_counts.append(len(reference.split()))
+        self._segment_count += 1
+        
+        if confidence is not None:
+            self._confidences.append(confidence)
+        
+        return {
+            'wer': wer,
+            'cer': cer,
+            'accuracy': accuracy,
+        }
+    
+    def get_aggregated_metrics(self) -> AccuracyMetrics:
+        """
+        Get aggregated accuracy metrics across all measured segments.
+        
+        Returns:
+            AccuracyMetrics: Aggregated metrics
+        """
+        if not self._wer_values:
+            return AccuracyMetrics()
+        
+        return AccuracyMetrics(
+            wer=mean(self._wer_values),
+            cer=mean(self._cer_values),
+            accuracy=mean(self._accuracy_values),
+            word_count=sum(self._word_counts),
+            segment_count=self._segment_count,
+            avg_confidence=mean(self._confidences) if self._confidences else 0.0,
+        )
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get detailed statistics including standard deviation.
+        
+        Returns:
+            Dict[str, Any]: Detailed statistics
+        """
+        metrics = self.get_aggregated_metrics()
+        
+        stats = {
+            'mean': metrics.to_dict(),
+            'count': self._segment_count,
+        }
+        
+        # Add standard deviation if we have enough samples
+        if len(self._wer_values) >= 2:
+            stats['std'] = {
+                'wer': stdev(self._wer_values),
+                'cer': stdev(self._cer_values),
+                'accuracy': stdev(self._accuracy_values),
+            }
+        
+        return stats
+
+
+class PerformanceMonitor:
+    """
+    Performance monitoring utility for benchmarking.
+    
+    Tracks:
+    - Latency (processing time per segment)
+    - CPU usage
+    - RAM usage
+    - Throughput
+    """
+    
+    def __init__(self, collect_system_metrics: bool = True):
+        """
+        Initialize the performance monitor.
+        
+        Args:
+            collect_system_metrics: Whether to collect CPU/RAM metrics
+        """
+        self._collect_system = collect_system_metrics
+        self.reset()
+    
+    def reset(self) -> None:
+        """Reset all accumulated measurements."""
+        self._latencies: List[float] = []
+        self._cpu_samples: List[float] = []
+        self._ram_samples: List[float] = []
+        self._start_time: Optional[float] = None
+        self._end_time: Optional[float] = None
+        self._segments_processed: int = 0
+    
+    def start(self) -> None:
+        """Start monitoring session."""
+        self.reset()
+        self._start_time = time.time()
+    
+    def stop(self) -> None:
+        """Stop monitoring session."""
+        self._end_time = time.time()
+    
+    def record_segment(
+        self,
+        latency_ms: float,
+        cpu_percent: Optional[float] = None,
+        ram_mb: Optional[float] = None
+    ) -> None:
+        """
+        Record metrics for a processed segment.
+        
+        Args:
+            latency_ms: Processing latency in milliseconds
+            cpu_percent: CPU usage percentage (optional)
+            ram_mb: RAM usage in MB (optional)
+        """
+        self._latencies.append(latency_ms)
+        self._segments_processed += 1
+        
+        if self._collect_system:
+            if cpu_percent is not None:
+                self._cpu_samples.append(cpu_percent)
+            if ram_mb is not None:
+                self._ram_samples.append(ram_mb)
+    
+    def get_current_system_metrics(self) -> Tuple[float, float]:
+        """
+        Get current system metrics.
+        
+        Returns:
+            Tuple[float, float]: (CPU percent, RAM MB)
+        """
+        if not self._collect_system:
+            return 0.0, 0.0
+        
+        cpu_percent = psutil.cpu_percent(interval=0.01)
+        process = psutil.Process()
+        ram_mb = process.memory_info().rss / (1024 * 1024)
+        
+        return cpu_percent, ram_mb
+    
+    def get_metrics(self) -> PerformanceMetrics:
+        """
+        Get aggregated performance metrics.
+        
+        Returns:
+            PerformanceMetrics: Aggregated metrics
+        """
+        if not self._latencies:
+            return PerformanceMetrics()
+        
+        total_time = (self._end_time or time.time()) - (self._start_time or 0)
+        
+        return PerformanceMetrics(
+            avg_latency_ms=mean(self._latencies),
+            max_latency_ms=max(self._latencies),
+            min_latency_ms=min(self._latencies),
+            total_time_s=total_time,
+            avg_cpu_percent=mean(self._cpu_samples) if self._cpu_samples else 0.0,
+            max_cpu_percent=max(self._cpu_samples) if self._cpu_samples else 0.0,
+            avg_ram_mb=mean(self._ram_samples) if self._ram_samples else 0.0,
+            max_ram_mb=max(self._ram_samples) if self._ram_samples else 0.0,
+            segments_processed=self._segments_processed,
+            throughput_segments_per_sec=self._segments_processed / total_time if total_time > 0 else 0.0,
+        )
+
+
+class BenchmarkRunner:
+    """
+    Automated benchmark runner for dual-mode validation.
+    
+    Supports:
+    - Running benchmarks with configurable scenarios
+    - Comparing single-mode vs dual-mode performance
+    - Aggregating and reporting results
+    - Saving benchmark results to files
+    """
+    
+    def __init__(self, config: Optional[BenchmarkConfig] = None):
+        """
+        Initialize the benchmark runner.
+        
+        Args:
+            config: Benchmark configuration
+        """
+        self.config = config or BenchmarkConfig()
+        self.results: List[BenchmarkResult] = []
+        self._accuracy_measurer = AccuracyMeasurer()
+        self._performance_monitor = PerformanceMonitor(
+            collect_system_metrics=self.config.collect_system_metrics
+        )
+    
+    def run_benchmark(
+        self,
+        segments: List[Dict[str, Any]],
+        ground_truths: List[str],
+        mode: str = "single"
+    ) -> BenchmarkResult:
+        """
+        Run a benchmark for the given segments.
+        
+        Args:
+            segments: List of segment dictionaries with 'text' and 'confidence'
+            ground_truths: List of ground truth strings for each segment
+            mode: "single" or "dual" mode identifier
+            
+        Returns:
+            BenchmarkResult: Complete benchmark result
+        """
+        # Reset measurers
+        self._accuracy_measurer.reset()
+        self._performance_monitor.start()
+        
+        logger.info(f"Starting benchmark: {self.config.name} (mode: {mode}, segments: {len(segments)})")
+        
+        # Process segments (warmup + test)
+        warmup_count = min(self.config.warmup_segments, len(segments))
+        test_count = min(self.config.test_segments, len(segments) - warmup_count)
+        
+        for i, (segment, ground_truth) in enumerate(zip(segments, ground_truths)):
+            is_warmup = i < warmup_count
+            
+            start_time = time.time()
+            
+            # Measure accuracy
+            text = segment.get('enhanced_text', segment.get('text', ''))
+            confidence = segment.get('confidence')
+            metrics = self._accuracy_measurer.measure(ground_truth, text, confidence)
+            
+            # Record performance
+            latency_ms = (time.time() - start_time) * 1000
+            cpu_percent, ram_mb = self._performance_monitor.get_current_system_metrics()
+            self._performance_monitor.record_segment(latency_ms, cpu_percent, ram_mb)
+            
+            if not is_warmup:
+                logger.debug(f"Segment {i}: WER={metrics['wer']:.3f}, latency={latency_ms:.1f}ms")
+        
+        self._performance_monitor.stop()
+        
+        # Create result
+        result = BenchmarkResult(
+            name=self.config.name,
+            mode=mode,
+            accuracy=self._accuracy_measurer.get_aggregated_metrics(),
+            performance=self._performance_monitor.get_metrics(),
+            metadata={
+                'config': self.config.to_dict(),
+                'warmup_segments': warmup_count,
+                'test_segments': test_count,
+            }
+        )
+        
+        self.results.append(result)
+        
+        logger.info(
+            f"Benchmark complete: WER={result.accuracy.wer:.3f}, "
+            f"accuracy={result.accuracy.accuracy:.3f}, "
+            f"avg_latency={result.performance.avg_latency_ms:.1f}ms"
+        )
+        
+        # Save results if configured
+        if self.config.save_results:
+            self._save_result(result)
+        
+        return result
+    
+    def _save_result(self, result: BenchmarkResult) -> None:
+        """Save benchmark result to file."""
+        try:
+            output_dir = self.config.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"benchmark_{result.name}_{result.mode}_{timestamp}.json"
+            filepath = os.path.join(output_dir, filename)
+            
+            with open(filepath, 'w') as f:
+                json.dump(result.to_dict(), f, indent=2)
+            
+            logger.info(f"Saved benchmark result to {filepath}")
+        except Exception as e:
+            logger.error(f"Failed to save benchmark result: {e}")
+    
+    def compare_results(
+        self,
+        single_mode_result: BenchmarkResult,
+        dual_mode_result: BenchmarkResult
+    ) -> Dict[str, Any]:
+        """
+        Compare single-mode and dual-mode results.
+        
+        Args:
+            single_mode_result: Benchmark result for single mode
+            dual_mode_result: Benchmark result for dual mode
+            
+        Returns:
+            Dict[str, Any]: Comparison summary
+        """
+        accuracy_improvement = dual_mode_result.accuracy.accuracy - single_mode_result.accuracy.accuracy
+        wer_improvement = single_mode_result.accuracy.wer - dual_mode_result.accuracy.wer
+        
+        latency_overhead = dual_mode_result.performance.avg_latency_ms - single_mode_result.performance.avg_latency_ms
+        latency_overhead_percent = (latency_overhead / single_mode_result.performance.avg_latency_ms * 100 
+                                   if single_mode_result.performance.avg_latency_ms > 0 else 0)
+        
+        return {
+            'accuracy_improvement': accuracy_improvement,
+            'wer_improvement': wer_improvement,
+            'latency_overhead_ms': latency_overhead,
+            'latency_overhead_percent': latency_overhead_percent,
+            'single_mode': single_mode_result.to_dict(),
+            'dual_mode': dual_mode_result.to_dict(),
+            'improvement_ratio': accuracy_improvement / single_mode_result.accuracy.accuracy 
+                               if single_mode_result.accuracy.accuracy > 0 else 0,
+        }
+    
+    def generate_report(self) -> str:
+        """
+        Generate a text report of all benchmark results.
+        
+        Returns:
+            str: Formatted report
+        """
+        lines = [
+            "=" * 60,
+            f"Benchmark Report: {self.config.name}",
+            "=" * 60,
+            "",
+        ]
+        
+        for result in self.results:
+            lines.extend([
+                f"Mode: {result.mode}",
+                "-" * 40,
+                "Accuracy Metrics:",
+                f"  WER: {result.accuracy.wer:.4f}",
+                f"  CER: {result.accuracy.cer:.4f}",
+                f"  Accuracy: {result.accuracy.accuracy:.4f}",
+                f"  Segments: {result.accuracy.segment_count}",
+                "",
+                "Performance Metrics:",
+                f"  Avg Latency: {result.performance.avg_latency_ms:.2f}ms",
+                f"  Max Latency: {result.performance.max_latency_ms:.2f}ms",
+                f"  Throughput: {result.performance.throughput_segments_per_sec:.2f} seg/s",
+                f"  Avg CPU: {result.performance.avg_cpu_percent:.1f}%",
+                f"  Avg RAM: {result.performance.avg_ram_mb:.1f}MB",
+                "",
+            ])
+        
+        return "\n".join(lines)
