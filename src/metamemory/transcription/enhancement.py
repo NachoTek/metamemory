@@ -152,7 +152,7 @@ class EnhancementWorkerPool:
 
     Features:
     - Parallel processing using asyncio + ThreadPoolExecutor
-    - Dynamic worker scaling based on system load
+    - Dynamic worker scaling based on system load (CPU and RAM)
     - Completion callbacks for real-time transcript updates
     - Error handling with retry logic
     - Graceful degradation under resource constraints
@@ -165,6 +165,7 @@ class EnhancementWorkerPool:
                  max_workers: int = 8,
                  dynamic_scaling: bool = True,
                  cpu_usage_threshold: float = 0.8,
+                 ram_usage_threshold: float = 0.85,
                  worker_scaling_algorithm: str = "adaptive"):
         """
         Initialize the worker pool with specified number of workers.
@@ -175,6 +176,7 @@ class EnhancementWorkerPool:
             max_workers: Maximum workers when scaling up (default: 8)
             dynamic_scaling: Enable auto-scaling based on system load (default: True)
             cpu_usage_threshold: CPU usage threshold for scaling (default: 0.8)
+            ram_usage_threshold: RAM usage threshold for scaling (default: 0.85)
             worker_scaling_algorithm: Scaling algorithm - "adaptive", "linear", or "none" (default: "adaptive")
         """
         self.num_workers = num_workers
@@ -182,6 +184,7 @@ class EnhancementWorkerPool:
         self.max_workers = max_workers
         self.dynamic_scaling = dynamic_scaling
         self.cpu_usage_threshold = cpu_usage_threshold
+        self.ram_usage_threshold = ram_usage_threshold
         self.worker_scaling_algorithm = worker_scaling_algorithm
 
         # Initialize executor with current worker count
@@ -206,6 +209,18 @@ class EnhancementWorkerPool:
         self.task_start_times: Dict[str, float] = {}
         self.avg_processing_time = 0.0
         self.last_scale_time = 0.0
+        self.scale_check_interval = 30.0  # Seconds between scaling checks
+
+        # System load monitoring (CPU and RAM)
+        self._cpu_history: List[float] = []
+        self._ram_history: List[float] = []
+        self._history_max_size = 10  # Keep last 10 readings
+        self._current_cpu_usage = 0.0
+        self._current_ram_usage = 0.0
+
+        # Scaling decisions log
+        self._scaling_decisions: List[Dict[str, Any]] = []
+        self._max_scaling_log = 50
 
         # Completion timing metrics
         self.completion_times: List[float] = []
@@ -220,7 +235,8 @@ class EnhancementWorkerPool:
         # Completion callbacks
         self.completion_callbacks: List[Callable[[Dict[str, Any]], None]] = []
 
-        logger.info(f"Initialized EnhancementWorkerPool: {num_workers} workers, scaling={dynamic_scaling}")
+        logger.info(f"Initialized EnhancementWorkerPool: {num_workers} workers, scaling={dynamic_scaling}, "
+                   f"cpu_threshold={cpu_usage_threshold}, ram_threshold={ram_usage_threshold}")
 
     async def process_segment(self, segment: Dict[str, Any],
                             processor: 'EnhancementProcessor',
@@ -242,12 +258,14 @@ class EnhancementWorkerPool:
 
         # Track context (during recording vs after stop)
         is_during_recording = self.recording_active
+        context_str = "during recording" if is_during_recording else "after recording stopped"
+
         if is_during_recording:
             self.tasks_during_recording += 1
         else:
             self.tasks_after_recording += 1
 
-        logger.info(f"[ENHANCEMENT PROCESS] Starting segment {segment_id} (during recording: {is_during_recording}, retry: {retry_count})")
+        logger.info(f"[ENHANCEMENT PROCESS] Starting segment {segment_id} ({context_str}, retry: {retry_count})")
 
         # Check if pool is running
         if not self.is_running:
@@ -269,7 +287,6 @@ class EnhancementWorkerPool:
         loop = asyncio.get_event_loop()
 
         try:
-            context_str = "during recording" if is_during_recording else "after recording stopped"
             logger.debug(f"Processing segment {segment_id} {context_str} (retry {retry_count}/{self.max_retries})")
 
             enhanced = await loop.run_in_executor(
@@ -406,32 +423,162 @@ class EnhancementWorkerPool:
     
     async def _maybe_scale_workers(self) -> None:
         """
-        Dynamically scale workers based on system load.
+        Dynamically scale workers based on system load (CPU and RAM).
         Only scales if enough time has passed since last scale operation.
+        Uses smoothed metrics from history to avoid reactive scaling.
         """
         async with self._scaling_lock:
             now = time.time()
             time_since_last_scale = now - self.last_scale_time
             
-            # Only check scaling every 30 seconds
-            if time_since_last_scale < 30:
+            # Only check scaling at configured interval
+            if time_since_last_scale < self.scale_check_interval:
                 return
-            
-            cpu_usage = psutil.cpu_percent(interval=0.1)
             
             if self.worker_scaling_algorithm == "none":
                 return
             
-            if cpu_usage > self.cpu_usage_threshold and self.num_workers > self.min_workers:
-                # Scale down
-                new_worker_count = max(self.min_workers, self.num_workers - 1)
+            # Collect current system metrics
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+            ram_usage = psutil.virtual_memory().percent / 100.0
+            
+            # Update history for smoothing
+            self._update_resource_history(cpu_usage, ram_usage)
+            
+            # Get smoothed averages
+            avg_cpu = self._get_avg_cpu_usage()
+            avg_ram = self._get_avg_ram_usage()
+            
+            # Store current readings
+            self._current_cpu_usage = cpu_usage
+            self._current_ram_usage = ram_usage
+            
+            # Determine scaling action based on algorithm
+            scaling_action = self._determine_scaling_action(avg_cpu, avg_ram)
+            
+            if scaling_action['action'] == 'scale_down':
+                new_worker_count = max(self.min_workers, self.num_workers - scaling_action['delta'])
                 await self._scale_workers(new_worker_count)
-                logger.info(f"Scaled down workers: {self.num_workers} -> {new_worker_count} (CPU: {cpu_usage}%)")
-            elif cpu_usage < (self.cpu_usage_threshold * 0.7) and self.num_workers < self.max_workers:
-                # Scale up
-                new_worker_count = min(self.max_workers, self.num_workers + 1)
+                self._log_scaling_decision('scale_down', new_worker_count, cpu_usage, ram_usage, scaling_action['reason'])
+                
+            elif scaling_action['action'] == 'scale_up':
+                new_worker_count = min(self.max_workers, self.num_workers + scaling_action['delta'])
                 await self._scale_workers(new_worker_count)
-                logger.info(f"Scaled up workers: {self.num_workers} -> {new_worker_count} (CPU: {cpu_usage}%)")
+                self._log_scaling_decision('scale_up', new_worker_count, cpu_usage, ram_usage, scaling_action['reason'])
+    
+    def _update_resource_history(self, cpu_usage: float, ram_usage: float) -> None:
+        """
+        Update resource usage history for trend analysis.
+        
+        Args:
+            cpu_usage: Current CPU usage (0.0-1.0)
+            ram_usage: Current RAM usage (0.0-1.0)
+        """
+        self._cpu_history.append(cpu_usage)
+        self._ram_history.append(ram_usage)
+        
+        # Trim to max size
+        if len(self._cpu_history) > self._history_max_size:
+            self._cpu_history = self._cpu_history[-self._history_max_size:]
+        if len(self._ram_history) > self._history_max_size:
+            self._ram_history = self._ram_history[-self._history_max_size:]
+    
+    def _get_avg_cpu_usage(self) -> float:
+        """Get smoothed average CPU usage from history."""
+        if not self._cpu_history:
+            return 0.0
+        return sum(self._cpu_history) / len(self._cpu_history)
+    
+    def _get_avg_ram_usage(self) -> float:
+        """Get smoothed average RAM usage from history."""
+        if not self._ram_history:
+            return 0.0
+        return sum(self._ram_history) / len(self._ram_history)
+    
+    def _determine_scaling_action(self, avg_cpu: float, avg_ram: float) -> Dict[str, Any]:
+        """
+        Determine scaling action based on resource metrics and algorithm.
+        
+        Args:
+            avg_cpu: Smoothed CPU usage (0-100)
+            avg_ram: Smoothed RAM usage (0.0-1.0)
+            
+        Returns:
+            Dict with 'action', 'delta', and 'reason' keys
+        """
+        # Default: no action
+        result = {'action': 'none', 'delta': 0, 'reason': 'Within thresholds'}
+        
+        # Check for resource pressure (scale down conditions)
+        cpu_pressure = avg_cpu > (self.cpu_usage_threshold * 100)
+        ram_pressure = avg_ram > self.ram_usage_threshold
+        
+        if cpu_pressure and ram_pressure:
+            # Both resources under pressure - aggressive scale down
+            delta = 2 if self.worker_scaling_algorithm == "adaptive" else 1
+            result = {
+                'action': 'scale_down',
+                'delta': delta,
+                'reason': f'High resource pressure (CPU: {avg_cpu:.1f}%, RAM: {avg_ram*100:.1f}%)'
+            }
+        elif cpu_pressure:
+            # CPU pressure - moderate scale down
+            result = {
+                'action': 'scale_down',
+                'delta': 1,
+                'reason': f'High CPU usage ({avg_cpu:.1f}% > {self.cpu_usage_threshold * 100:.0f}%)'
+            }
+        elif ram_pressure:
+            # RAM pressure - moderate scale down
+            result = {
+                'action': 'scale_down',
+                'delta': 1,
+                'reason': f'High RAM usage ({avg_ram*100:.1f}% > {self.ram_usage_threshold * 100:.0f}%)'
+            }
+        elif avg_cpu < (self.cpu_usage_threshold * 100 * 0.7) and avg_ram < (self.ram_usage_threshold * 0.7):
+            # Low resource usage - scale up opportunity
+            if self.pending_tasks > self.num_workers:
+                # There's queue pressure, scale up
+                delta = 2 if self.worker_scaling_algorithm == "adaptive" else 1
+                result = {
+                    'action': 'scale_up',
+                    'delta': delta,
+                    'reason': f'Low resource usage with pending tasks (CPU: {avg_cpu:.1f}%, RAM: {avg_ram*100:.1f}%)'
+                }
+        
+        return result
+    
+    def _log_scaling_decision(self, action: str, new_count: int, cpu: float, ram: float, reason: str) -> None:
+        """
+        Log a scaling decision for monitoring and debugging.
+        
+        Args:
+            action: 'scale_up' or 'scale_down'
+            new_count: New worker count
+            cpu: CPU usage at decision time
+            ram: RAM usage at decision time
+            reason: Human-readable reason for the decision
+        """
+        decision = {
+            'timestamp': time.time(),
+            'action': action,
+            'from_workers': self.num_workers,
+            'to_workers': new_count,
+            'cpu_usage': cpu,
+            'ram_usage': ram,
+            'reason': reason
+        }
+        
+        self._scaling_decisions.append(decision)
+        
+        # Trim log
+        if len(self._scaling_decisions) > self._max_scaling_log:
+            self._scaling_decisions = self._scaling_decisions[-self._max_scaling_log:]
+        
+        # Log to logger
+        direction = "up" if action == "scale_up" else "down"
+        logger.info(f"[SCALING] Scaled {direction}: {self.num_workers} -> {new_count} workers | "
+                   f"CPU: {cpu:.1f}% | RAM: {ram*100:.1f}% | Reason: {reason}")
     
     async def _scale_workers(self, new_worker_count: int) -> None:
         """
@@ -596,7 +743,9 @@ class EnhancementWorkerPool:
             Dict[str, Any]: Dictionary with worker pool statistics
         """
         cpu_usage = psutil.cpu_percent(interval=0.1) if self.dynamic_scaling else 0.0
+        ram_info = psutil.virtual_memory() if self.dynamic_scaling else None
         completion_metrics = self.get_completion_metrics()
+        resource_metrics = self.get_system_metrics()
 
         return {
             'num_workers': self.num_workers,
@@ -612,9 +761,196 @@ class EnhancementWorkerPool:
             'dynamic_scaling': self.dynamic_scaling,
             'cpu_usage': cpu_usage,
             'cpu_usage_threshold': self.cpu_usage_threshold,
+            'ram_usage': ram_info.percent / 100.0 if ram_info else 0.0,
+            'ram_usage_threshold': self.ram_usage_threshold,
             'avg_processing_time': self.avg_processing_time,
             'active_threads': len(self.executor._threads) if hasattr(self.executor, '_threads') else 0,
-            'completion_metrics': completion_metrics
+            'completion_metrics': completion_metrics,
+            'resource_metrics': resource_metrics
+        }
+    
+    def get_system_metrics(self) -> Dict[str, Any]:
+        """
+        Get current system resource metrics for performance monitoring.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with CPU, RAM, and system metrics
+        """
+        try:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_count = psutil.cpu_count()
+            cpu_freq = psutil.cpu_freq()
+            
+            memory = psutil.virtual_memory()
+            swap = psutil.swap_memory()
+            
+            return {
+                'cpu': {
+                    'usage_percent': cpu_percent,
+                    'count': cpu_count,
+                    'frequency_mhz': cpu_freq.current if cpu_freq else 0,
+                    'avg_usage': self._get_avg_cpu_usage()
+                },
+                'ram': {
+                    'total_gb': memory.total / (1024**3),
+                    'available_gb': memory.available / (1024**3),
+                    'used_gb': memory.used / (1024**3),
+                    'usage_percent': memory.percent,
+                    'avg_usage': self._get_avg_ram_usage() * 100
+                },
+                'swap': {
+                    'total_gb': swap.total / (1024**3),
+                    'used_gb': swap.used / (1024**3),
+                    'usage_percent': swap.percent
+                },
+                'thresholds': {
+                    'cpu_threshold': self.cpu_usage_threshold,
+                    'ram_threshold': self.ram_usage_threshold,
+                    'cpu_pressure': cpu_percent > (self.cpu_usage_threshold * 100),
+                    'ram_pressure': memory.percent / 100 > self.ram_usage_threshold
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error getting system metrics: {e}")
+            return {
+                'cpu': {'usage_percent': 0, 'count': 0, 'frequency_mhz': 0, 'avg_usage': 0},
+                'ram': {'total_gb': 0, 'available_gb': 0, 'used_gb': 0, 'usage_percent': 0, 'avg_usage': 0},
+                'swap': {'total_gb': 0, 'used_gb': 0, 'usage_percent': 0},
+                'thresholds': {
+                    'cpu_threshold': self.cpu_usage_threshold,
+                    'ram_threshold': self.ram_usage_threshold,
+                    'cpu_pressure': False,
+                    'ram_pressure': False
+                },
+                'error': str(e)
+            }
+    
+    def get_worker_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Get worker performance metrics for monitoring.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with worker performance statistics
+        """
+        return {
+            'current_workers': self.num_workers,
+            'worker_bounds': {
+                'min': self.min_workers,
+                'max': self.max_workers
+            },
+            'task_statistics': {
+                'pending': self.pending_tasks,
+                'completed': self.completed_tasks,
+                'failed': self.failed_tasks,
+                'total_retries': self.retry_count
+            },
+            'performance': {
+                'avg_processing_time_sec': self.avg_processing_time,
+                'success_rate': self.completed_tasks / max(1, self.completed_tasks + self.failed_tasks),
+                'throughput_per_min': self._calculate_throughput()
+            },
+            'scaling': {
+                'algorithm': self.worker_scaling_algorithm,
+                'dynamic_scaling_enabled': self.dynamic_scaling,
+                'recent_decisions': self._scaling_decisions[-5:] if self._scaling_decisions else []
+            }
+        }
+    
+    def _calculate_throughput(self) -> float:
+        """Calculate tasks completed per minute."""
+        if not self.completion_times:
+            return 0.0
+        
+        # Use recent completion times to estimate throughput
+        recent_count = min(len(self.completion_times), 20)
+        if recent_count < 2:
+            return 0.0
+        
+        # Estimate based on average processing time
+        avg_time = sum(self.completion_times[-recent_count:]) / recent_count
+        if avg_time > 0:
+            return 60.0 / avg_time  # Tasks per minute per worker
+        return 0.0
+    
+    def get_response_time_metrics(self) -> Dict[str, Any]:
+        """
+        Get response time tracking metrics.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with response time statistics
+        """
+        if not self.completion_times:
+            return {
+                'avg_response_time_ms': 0,
+                'min_response_time_ms': 0,
+                'max_response_time_ms': 0,
+                'p50_response_time_ms': 0,
+                'p95_response_time_ms': 0,
+                'p99_response_time_ms': 0,
+                'sample_count': 0
+            }
+        
+        sorted_times = sorted(self.completion_times)
+        count = len(sorted_times)
+        
+        def percentile(data: List[float], p: float) -> float:
+            """Calculate the p-th percentile of data."""
+            if not data:
+                return 0.0
+            k = (len(data) - 1) * p / 100
+            f = int(k)
+            c = f + 1 if f + 1 < len(data) else f
+            return data[f] + (k - f) * (data[c] - data[f]) if c != f else data[f]
+        
+        return {
+            'avg_response_time_ms': sum(sorted_times) / count * 1000,
+            'min_response_time_ms': sorted_times[0] * 1000,
+            'max_response_time_ms': sorted_times[-1] * 1000,
+            'p50_response_time_ms': percentile(sorted_times, 50) * 1000,
+            'p95_response_time_ms': percentile(sorted_times, 95) * 1000,
+            'p99_response_time_ms': percentile(sorted_times, 99) * 1000,
+            'sample_count': count
+        }
+    
+    def check_performance_thresholds(self) -> Dict[str, Any]:
+        """
+        Check if performance metrics are within acceptable thresholds.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with threshold check results
+        """
+        warnings = []
+        critical = []
+        
+        # Check CPU usage
+        avg_cpu = self._get_avg_cpu_usage()
+        if avg_cpu > self.cpu_usage_threshold * 100:
+            critical.append(f"CPU usage critical: {avg_cpu:.1f}% (threshold: {self.cpu_usage_threshold * 100:.0f}%)")
+        elif avg_cpu > self.cpu_usage_threshold * 100 * 0.9:
+            warnings.append(f"CPU usage high: {avg_cpu:.1f}%")
+        
+        # Check RAM usage
+        avg_ram = self._get_avg_ram_usage()
+        if avg_ram > self.ram_usage_threshold:
+            critical.append(f"RAM usage critical: {avg_ram * 100:.1f}% (threshold: {self.ram_usage_threshold * 100:.0f}%)")
+        elif avg_ram > self.ram_usage_threshold * 0.9:
+            warnings.append(f"RAM usage high: {avg_ram * 100:.1f}%")
+        
+        # Check failure rate
+        total_tasks = self.completed_tasks + self.failed_tasks
+        if total_tasks > 0:
+            failure_rate = self.failed_tasks / total_tasks
+            if failure_rate > 0.1:
+                critical.append(f"High failure rate: {failure_rate * 100:.1f}%")
+            elif failure_rate > 0.05:
+                warnings.append(f"Elevated failure rate: {failure_rate * 100:.1f}%")
+        
+        return {
+            'healthy': len(critical) == 0,
+            'warnings': warnings,
+            'critical': critical,
+            'cpu_status': 'critical' if avg_cpu > self.cpu_usage_threshold * 100 else ('warning' if avg_cpu > self.cpu_usage_threshold * 100 * 0.9 else 'ok'),
+            'ram_status': 'critical' if avg_ram > self.ram_usage_threshold else ('warning' if avg_ram > self.ram_usage_threshold * 0.9 else 'ok')
         }
 
 
