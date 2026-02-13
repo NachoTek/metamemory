@@ -544,7 +544,19 @@ to avoid clipping issues and enable proper text rendering.
         """
         print(f"DEBUG UI: Enhancement settings changed: {settings}")
         
-        # Apply settings to the running transcription processor via controller
+        # Persist settings to config file so they apply to future recordings
+        from metamemory.config import set_config, save_config
+        
+        if 'confidence_threshold' in settings:
+            set_config('enhancement.confidence_threshold', settings['confidence_threshold'])
+        if 'num_workers' in settings:
+            set_config('enhancement.num_workers', settings['num_workers'])
+        
+        # Save config to disk
+        save_config()
+        print(f"DEBUG UI: Enhancement settings saved to config")
+        
+        # Also update running processor if recording is active
         if self._controller:
             self._controller.update_enhancement_settings(settings)
 
