@@ -140,7 +140,19 @@ class AccumulatingTranscriptionProcessor:
         # Tracks the last segment index that was emitted to the UI
         self._last_emitted_segment_index = -1  # -1 means nothing emitted yet
         
-        # Enhancement system integration
+        # Enhancement system (deferred initialization to avoid blocking UI)
+        self._enhancement_config = None
+        self._enhancement_queue = None
+        self._enhancement_worker_pool = None
+        self._enhancement_processor = None
+        self._enhancement_config_obj = None
+        self._enhancement_thread: Optional[threading.Thread] = None
+        self._enhancement_stop_event = threading.Event()
+        self._enhancement_event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._enhancement_enabled = False  # Will be set True during start()
+    
+    def _init_enhancement(self) -> None:
+        """Initialize enhancement system (called lazily during start())."""
         try:
             config = get_config()
             self._enhancement_config = config.enhancement
@@ -148,20 +160,16 @@ class AccumulatingTranscriptionProcessor:
                 max_size=100,
                 confidence_threshold=self._enhancement_config.confidence_threshold
             )
-            enhancement_config = EnhancementConfig(
-                confidence_threshold=self._enhancement_config.confidence_threshold,
-                num_workers=self._enhancement_config.num_workers,
-                enhancement_model=self._enhancement_config.enhancement_model
-            )
             self._enhancement_worker_pool = EnhancementWorkerPool(
                 num_workers=self._enhancement_config.num_workers,
                 dynamic_scaling=self._enhancement_config.dynamic_scaling,
                 cpu_usage_threshold=self._enhancement_config.cpu_usage_threshold
             )
-            self._enhancement_processor = EnhancementProcessor(config=enhancement_config)
-            self._enhancement_thread: Optional[threading.Thread] = None
-            self._enhancement_stop_event = threading.Event()
-            self._enhancement_event_loop: Optional[asyncio.AbstractEventLoop] = None
+            self._enhancement_config_obj = EnhancementConfig(
+                confidence_threshold=self._enhancement_config.confidence_threshold,
+                num_workers=self._enhancement_config.num_workers,
+                enhancement_model=self._enhancement_config.enhancement_model
+            )
             self._enhancement_enabled = True
             print(f"DEBUG: Enhancement system initialized (threshold: {self._enhancement_config.confidence_threshold*100}%)")
         except Exception as e:
@@ -211,7 +219,8 @@ class AccumulatingTranscriptionProcessor:
         print("DEBUG: Accumulating transcription processor started")
         print(f"DEBUG: Window size: {self.window_size}s, Update frequency: {self.update_frequency}s, Silence timeout: {self.silence_timeout}s")
         
-        # Start enhancement processing
+        # Initialize and start enhancement processing (deferred from __init__)
+        self._init_enhancement()
         if self._enhancement_enabled:
             self._start_enhancement_processing()
     
@@ -470,12 +479,13 @@ class AccumulatingTranscriptionProcessor:
                     )
                     
                     # Check if segment should be enhanced (confidence below threshold)
-                    if self._enhancement_enabled and self._enhancement_queue:
+                    if self._enhancement_enabled and self._enhancement_queue and self._enhancement_config:
+                        threshold = self._enhancement_config.confidence_threshold
                         should_enhance_flag = should_enhance(
                             {'confidence': result.confidence, 'text': result.text, 'id': f"seg_{i}"},
-                            threshold=self._enhancement_config.confidence_threshold
+                            threshold=threshold
                         )
-                        print(f"[ENHANCEMENT CHECK] seg={i}, text='{seg_text[:30]}', conf={result.confidence}%, threshold={self._enhancement_config.confidence_threshold*100}%, should_enhance={should_enhance_flag}")
+                        print(f"[ENHANCEMENT CHECK] seg={i}, text='{seg_text[:30]}', conf={result.confidence}%, threshold={threshold*100}%, should_enhance={should_enhance_flag}")
                         
                         if should_enhance_flag:
                             enhancement_segment = {
@@ -545,6 +555,9 @@ class AccumulatingTranscriptionProcessor:
         if not self._enhancement_enabled:
             return
         
+        if self._enhancement_worker_pool is None or self._enhancement_config is None:
+            return
+        
         if self._enhancement_thread is not None and self._enhancement_thread.is_alive():
             print("DEBUG: Enhancement processing thread already running")
             return
@@ -577,7 +590,7 @@ class AccumulatingTranscriptionProcessor:
         self._enhancement_thread = None
         
         # Stop worker pool
-        if self._enhancement_worker_pool.is_running:
+        if self._enhancement_worker_pool and self._enhancement_worker_pool.is_running:
             if self._enhancement_event_loop:
                 asyncio.run_coroutine_threadsafe(
                     self._enhancement_worker_pool.stop(timeout=timeout),
@@ -588,7 +601,7 @@ class AccumulatingTranscriptionProcessor:
     
     def _enhancement_processing_loop(self) -> None:
         """Background thread that processes enhancement queue."""
-        if not self._enhancement_enabled:
+        if not self._enhancement_enabled or self._enhancement_queue is None or self._enhancement_worker_pool is None:
             return
         
         # Create event loop for this thread
@@ -603,6 +616,15 @@ class AccumulatingTranscriptionProcessor:
                 segment = self._enhancement_queue.dequeue()
                 
                 if segment is not None:
+                    # Lazily create enhancement processor on first use (avoid blocking UI)
+                    if self._enhancement_processor is None and self._enhancement_config_obj is not None:
+                        print("DEBUG: Loading enhancement model (lazy load)...")
+                        self._enhancement_processor = EnhancementProcessor(config=self._enhancement_config_obj)
+                    
+                    if self._enhancement_processor is None:
+                        print("[ENHANCEMENT ERROR] Processor not initialized, skipping segment")
+                        continue
+                    
                     print(f"[ENHANCEMENT PROCESS] Dequeued segment {segment['id']}")
                     
                     # Process segment asynchronously
