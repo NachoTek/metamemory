@@ -278,7 +278,8 @@ class EnhancementWorkerPool:
         self.completion_callbacks: List[Callable[[Dict[str, Any]], None]] = []
 
         logger.info(f"Initialized EnhancementWorkerPool: {num_workers} workers, scaling={dynamic_scaling}, "
-                   f"cpu_threshold={cpu_usage_threshold}, ram_threshold={ram_usage_threshold}")
+                   f"cpu_threshold={cpu_usage_threshold}, ram_threshold={ram_usage_threshold}, "
+                   f"degradation={'enabled' if enable_graceful_degradation else 'disabled'}")
 
     async def process_segment(self, segment: Dict[str, Any],
                             processor: 'EnhancementProcessor',
@@ -312,13 +313,17 @@ class EnhancementWorkerPool:
         # Check if pool is running
         if not self.is_running:
             logger.warning(f"[ENHANCEMENT PROCESS] Worker pool not running, skipping segment {segment_id}")
-            return {
-                'id': segment_id,
-                'error': 'Worker pool not running',
-                'original_text': segment.get('text', ''),
-                'confidence': segment.get('confidence'),
-                'enhanced': False
-            }
+            return self.get_fallback_result(segment, error='Worker pool not running')
+
+        # Check degradation state
+        await self.check_degradation_state()
+        
+        # Apply degradation strategy if in degradation mode
+        if self._degradation_mode:
+            degraded_segment = await self.apply_degradation_strategy(segment)
+            if degraded_segment is None:
+                # Segment was skipped or queued only
+                return self.get_fallback_result(segment, error='Skipped due to degradation mode')
 
         # Check if dynamic scaling is needed
         if self.dynamic_scaling:
@@ -384,18 +389,8 @@ class EnhancementWorkerPool:
                 if segment_id in self.active_tasks:
                     del self.active_tasks[segment_id]
 
-                # Graceful degradation: return original segment with error flag
-                return {
-                    'id': segment_id,
-                    'error': error_msg,
-                    'original_text': segment.get('text', ''),
-                    'enhanced_text': segment.get('text', ''),  # Fallback to original
-                    'confidence': segment.get('confidence'),
-                    'enhanced': False,
-                    'is_enhanced': False,
-                    'graceful_degradation': True,
-                    'context': 'during_recording' if is_during_recording else 'post_recording'
-                }
+                # Graceful degradation: return fallback result
+                return self.get_fallback_result(segment, error=error_msg)
         finally:
             if segment_id in self.task_start_times:
                 del self.task_start_times[segment_id]
@@ -788,6 +783,7 @@ class EnhancementWorkerPool:
         ram_info = psutil.virtual_memory() if self.dynamic_scaling else None
         completion_metrics = self.get_completion_metrics()
         resource_metrics = self.get_system_metrics()
+        degradation_status = self.get_degradation_status()
 
         return {
             'num_workers': self.num_workers,
@@ -808,7 +804,8 @@ class EnhancementWorkerPool:
             'avg_processing_time': self.avg_processing_time,
             'active_threads': len(self.executor._threads) if hasattr(self.executor, '_threads') else 0,
             'completion_metrics': completion_metrics,
-            'resource_metrics': resource_metrics
+            'resource_metrics': resource_metrics,
+            'degradation_status': degradation_status
         }
     
     def get_system_metrics(self) -> Dict[str, Any]:
@@ -994,6 +991,232 @@ class EnhancementWorkerPool:
             'cpu_status': 'critical' if avg_cpu > self.cpu_usage_threshold * 100 else ('warning' if avg_cpu > self.cpu_usage_threshold * 100 * 0.9 else 'ok'),
             'ram_status': 'critical' if avg_ram > self.ram_usage_threshold else ('warning' if avg_ram > self.ram_usage_threshold * 0.9 else 'ok')
         }
+    
+    # ==========================================
+    # Graceful Degradation Handling
+    # ==========================================
+    
+    async def check_degradation_state(self) -> bool:
+        """
+        Check if system is in degradation mode based on resource usage.
+        
+        Returns:
+            bool: True if in degradation mode
+        """
+        if not self.enable_graceful_degradation:
+            return False
+        
+        now = time.time()
+        
+        # Throttle degradation checks
+        if now - self._last_degradation_check < self._degradation_check_interval:
+            return self._degradation_mode
+        
+        self._last_degradation_check = now
+        
+        # Get current resource usage
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        ram_usage = psutil.virtual_memory().percent / 100.0
+        
+        # Check degradation thresholds
+        cpu_degraded = cpu_usage > (self.degradation_cpu_threshold * 100)
+        ram_degraded = ram_usage > self.degradation_ram_threshold
+        
+        was_degraded = self._degradation_mode
+        self._degradation_mode = cpu_degraded or ram_degraded
+        
+        # Log state transitions
+        if self._degradation_mode and not was_degraded:
+            self._degradation_start_time = now
+            self._log_degradation_event('degradation_started', {
+                'cpu_usage': cpu_usage,
+                'ram_usage': ram_usage,
+                'trigger': 'cpu' if cpu_degraded else 'ram'
+            })
+            logger.warning(f"[DEGRADATION] Entering degradation mode - CPU: {cpu_usage:.1f}%, RAM: {ram_usage*100:.1f}%")
+            
+        elif not self._degradation_mode and was_degraded:
+            duration = now - (self._degradation_start_time or now)
+            self._log_degradation_event('degradation_ended', {
+                'duration_sec': duration,
+                'segments_skipped': self._segments_skipped_during_degradation,
+                'segments_fallback': self._segments_fallback_during_degradation
+            })
+            logger.info(f"[DEGRADATION] Exiting degradation mode after {duration:.1f}s")
+            # Reset counters
+            self._degradation_start_time = None
+            self._segments_skipped_during_degradation = 0
+            self._segments_fallback_during_degradation = 0
+        
+        return self._degradation_mode
+    
+    def _log_degradation_event(self, event_type: str, details: Dict[str, Any]) -> None:
+        """
+        Log a degradation event for monitoring.
+        
+        Args:
+            event_type: Type of event (degradation_started, degradation_ended, etc.)
+            details: Event details dictionary
+        """
+        if not self.degradation_logging:
+            return
+        
+        event = {
+            'timestamp': time.time(),
+            'event_type': event_type,
+            'details': details
+        }
+        
+        self._degradation_events.append(event)
+        
+        # Trim events log
+        if len(self._degradation_events) > self._max_degradation_events:
+            self._degradation_events = self._degradation_events[-self._max_degradation_events:]
+    
+    async def apply_degradation_strategy(self, segment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Apply degradation strategy to a segment.
+        
+        Args:
+            segment: Segment dictionary to process
+            
+        Returns:
+            Optional[Dict[str, Any]]: Processed segment or None if skipped
+        """
+        if not self._degradation_mode:
+            return segment  # Not in degradation mode, process normally
+        
+        self._segments_skipped_during_degradation += 1
+        
+        if self.degradation_strategy == "skip_low_confidence":
+            # Skip segments with very low confidence during degradation
+            confidence = segment.get('confidence', 100)
+            if confidence < 50:  # Skip very low confidence
+                self._log_degradation_event('segment_skipped', {
+                    'segment_id': segment.get('id'),
+                    'confidence': confidence,
+                    'reason': 'low_confidence_during_degradation'
+                })
+                logger.debug(f"[DEGRADATION] Skipping low-confidence segment {segment.get('id')}")
+                return None
+            return segment
+            
+        elif self.degradation_strategy == "queue_only":
+            # Don't process, just queue for later
+            self._log_degradation_event('segment_queued', {
+                'segment_id': segment.get('id'),
+                'reason': 'queue_only_mode'
+            })
+            logger.debug(f"[DEGRADATION] Queueing segment {segment.get('id')} for later processing")
+            return None  # Signal to queue but not process
+            
+        else:  # "reduce_workers" - default
+            # Continue processing but with reduced capacity (handled by scaling)
+            return segment
+    
+    def get_fallback_result(self, segment: Dict[str, Any], error: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a fallback result when enhancement fails.
+        
+        Args:
+            segment: Original segment dictionary
+            error: Optional error message
+            
+        Returns:
+            Dict[str, Any]: Fallback result dictionary
+        """
+        self._segments_fallback_during_degradation += 1
+        
+        result = {
+            'id': segment.get('id'),
+            'original_text': segment.get('text', ''),
+            'enhanced_text': segment.get('text', ''),  # Fallback to original
+            'original_confidence': segment.get('confidence'),
+            'confidence': segment.get('confidence'),
+            'enhanced': False,
+            'is_enhanced': False,
+            'graceful_degradation': True,
+            'fallback': True,
+            'context': 'during_recording' if self.recording_active else 'post_recording'
+        }
+        
+        if error:
+            result['error'] = error
+        
+        if self._degradation_mode:
+            result['degradation_mode'] = True
+            self._log_degradation_event('fallback_applied', {
+                'segment_id': segment.get('id'),
+                'error': error
+            })
+        
+        return result
+    
+    def get_degradation_status(self) -> Dict[str, Any]:
+        """
+        Get current degradation status.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with degradation status information
+        """
+        return {
+            'degradation_enabled': self.enable_graceful_degradation,
+            'in_degradation_mode': self._degradation_mode,
+            'degradation_start_time': self._degradation_start_time,
+            'degradation_duration_sec': time.time() - self._degradation_start_time if self._degradation_start_time else 0,
+            'current_strategy': self.degradation_strategy,
+            'segments_skipped': self._segments_skipped_during_degradation,
+            'segments_fallback': self._segments_fallback_during_degradation,
+            'recent_events': self._degradation_events[-10:] if self._degradation_events else [],
+            'thresholds': {
+                'cpu_threshold': self.degradation_cpu_threshold,
+                'ram_threshold': self.degradation_ram_threshold
+            }
+        }
+    
+    async def handle_queue_overflow(self, queue: 'EnhancementQueue', segment: Dict[str, Any]) -> bool:
+        """
+        Handle queue overflow based on configured strategy.
+        
+        Args:
+            queue: EnhancementQueue instance
+            segment: Segment to enqueue
+            
+        Returns:
+            bool: True if segment was handled, False if dropped
+        """
+        if self.queue_overflow_strategy == "drop_oldest":
+            # Remove oldest segment to make room
+            try:
+                old_segment = queue.queue.get_nowait()
+                self._log_degradation_event('queue_overflow_drop', {
+                    'dropped_segment_id': old_segment.get('id'),
+                    'new_segment_id': segment.get('id'),
+                    'strategy': 'drop_oldest'
+                })
+                logger.warning(f"[DEGRADATION] Dropped oldest segment {old_segment.get('id')} to make room")
+            except:
+                pass  # Queue might be empty now
+            return queue.enqueue(segment)
+            
+        elif self.queue_overflow_strategy == "drop_newest":
+            # Drop the new segment
+            self._log_degradation_event('queue_overflow_drop', {
+                'dropped_segment_id': segment.get('id'),
+                'strategy': 'drop_newest'
+            })
+            logger.warning(f"[DEGRADATION] Dropped new segment {segment.get('id')} due to queue overflow")
+            queue.dropped_segments += 1
+            return False
+            
+        else:  # "pause_enqueue"
+            # Pause enqueueing (handled by caller)
+            self._log_degradation_event('queue_overflow_pause', {
+                'segment_id': segment.get('id'),
+                'queue_size': queue.queue.qsize()
+            })
+            logger.warning(f"[DEGRADATION] Pausing enqueue - queue full with {queue.queue.qsize()} segments")
+            return False
 
 
 class EnhancementProcessor:
