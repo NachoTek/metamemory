@@ -197,6 +197,9 @@ to avoid clipping issues and enable proper text rendering.
     
     def _on_panel_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool, enhanced: bool = False):
         """Handle segment signal from panel (runs on main thread)."""
+        if enhanced:
+            print(f"[PANEL ENHANCED] Received enhanced segment signal: '{text}'")
+
         print(f"DEBUG Panel Signal: text='{text[:30]}...', idx={segment_index}, phrase_start={phrase_start}, enhanced={enhanced}")
         try:
             self._floating_transcript_panel.update_segment(
@@ -539,6 +542,11 @@ to avoid clipping issues and enable proper text rendering.
         """
         phrase_start = getattr(result, 'phrase_start', False)
         enhanced = getattr(result, 'enhanced', False)  # Get enhancement status
+
+        if enhanced:
+            print(f"[UI ENHANCED] Received enhanced segment: '{result.text}'")
+            print(f"[UI ENHANCED] segment_index={result.segment_index}, phrase_start={phrase_start}")
+
         print(f"DEBUG UI: Segment: '{result.text}' [conf: {result.confidence}%, final: {result.is_final}, phrase_start: {phrase_start}, enhanced: {enhanced}]")
 
         if self._floating_transcript_panel:

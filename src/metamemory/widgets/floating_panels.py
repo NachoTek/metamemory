@@ -252,6 +252,9 @@ class FloatingTranscriptPanel(QWidget):
             phrase_start: If True, start a new phrase (new line)
             enhanced: If True, this segment was enhanced by background processor
         """
+        if enhanced:
+            print(f"[PANEL ENHANCED] update_segment called with enhanced=True: text='{text}', idx={segment_index}")
+
         print(f"DEBUG Panel: update_segment text='{text}', idx={segment_index}, phrase_start={phrase_start}, enhanced={enhanced}")
         
         # Skip [BLANK_AUDIO] after creating a phrase structure
@@ -337,7 +340,7 @@ class FloatingTranscriptPanel(QWidget):
         so we append them to the end of the current phrase with special styling
         to indicate they were enhanced.
         """
-        print(f"DEBUG Panel: Appending enhanced segment: '{text}'")
+        print(f"[PANEL ENHANCED] Appending enhanced segment to display: '{text}' [conf: {confidence}%]")
 
         cursor = self.text_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -356,7 +359,7 @@ class FloatingTranscriptPanel(QWidget):
         # Add [ENHANCED] prefix to indicate this was enhanced
         cursor.insertText(f"[ENHANCED] {text}", fmt)
 
-        print(f"DEBUG Panel: Enhanced segment appended with text: '{text}'")
+        print(f"[PANEL ENHANCED] Enhanced segment appended: '{text}' [color: {color}, bold: True]")
     
     def _replace_segment_in_display(self, phrase_idx: int, segment_idx: int, text: str, confidence: int, enhanced: bool) -> None:
         """Replace a specific segment in the display without rebuilding everything."""
