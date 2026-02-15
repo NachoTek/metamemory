@@ -27,16 +27,16 @@
 
 ### Dual-Mode Enhancement
 
-- [ ] **ENH-01**: System enhances low-confidence segments using large Whisper model (medium/large) in background
-- [ ] **ENH-02**: System selectively enhances only segments below 70% confidence threshold
-- [ ] **ENH-03**: System updates transcript display in real-time as enhanced segments complete
-- [ ] **ENH-04**: Enhanced segments are visually distinguished (bold formatting)
-- [ ] **ENH-05**: System processes enhancement in parallel worker pool
-- [ ] **ENH-06**: User can view enhancement queue status and depth
-- [ ] **ENH-07**: User can adjust number of enhancement workers during operation
-- [ ] **ENH-08**: Transcript enhancement completes within 15-30 seconds after recording stops
-- [ ] **ENH-09**: System validates dual-mode effectiveness via FakeAudioModule testing
-- [ ] **ENH-10**: System supports Go/No-Go decision framework after 1-2 weeks testing
+- [x] **ENH-01**: System enhances low-confidence segments using large Whisper model (medium/large) in background
+- [x] **ENH-02**: System selectively enhances only segments below 70% confidence threshold
+- [x] **ENH-03**: System updates transcript display in real-time as enhanced segments complete
+- [x] **ENH-04**: Enhanced segments are visually distinguished (bold formatting)
+- [x] **ENH-05**: System processes enhancement in parallel worker pool
+- [x] **ENH-06**: User can view enhancement queue status and depth
+- [x] **ENH-07**: User can adjust number of enhancement workers during operation
+- [x] **ENH-08**: Transcript enhancement completes within 15-30 seconds after recording stops
+- [x] **ENH-09**: System validates dual-mode effectiveness via FakeAudioModule testing
+- [x] **ENH-10**: System supports Go/No-Go decision framework after 1-2 weeks testing
 
 ### Speaker Identification
 
