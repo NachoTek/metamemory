@@ -310,24 +310,34 @@ to avoid clipping issues and enable proper text rendering.
 
     def _update_enhancement_status(self):
         """Update enhancement status display in the transcript panel."""
+        print(f"[STATUS DEBUG] _update_enhancement_status called, is_recording={self.is_recording}, is_processing={self.is_processing}")
+
         if not self._floating_transcript_panel or not self._controller:
+            print(f"[STATUS DEBUG] Early return: panel={self._floating_transcript_panel is not None}, controller={self._controller is not None}")
             return
 
         # Only update when recording is active
         if not self.is_recording and not self.is_processing:
+            print(f"[STATUS DEBUG] Early return: not recording or processing")
             return
 
         # Get status from controller
         status = self._controller.get_enhancement_status()
+        print(f"[STATUS DEBUG] Status from controller: {status}")
 
         # Update panel
         if status.get('enabled', False):
+            queue_size = status.get('queue_size', 0)
+            workers_active = status.get('workers_active', 0)
+            total_enhanced = status.get('total_enhanced', 0)
+            print(f"[STATUS DEBUG] Updating panel: queue={queue_size}, workers={workers_active}, enhanced={total_enhanced}")
             self._floating_transcript_panel.update_enhancement_status(
-                queue_size=status.get('queue_size', 0),
-                workers_active=status.get('workers_active', 0),
-                total_enhanced=status.get('total_enhanced', 0)
+                queue_size=queue_size,
+                workers_active=workers_active,
+                total_enhanced=total_enhanced
             )
         else:
+            print(f"[STATUS DEBUG] Enhancement not enabled, status: {status}")
             self._floating_transcript_panel.enhancement_status_label.setText("Enhancement: Disabled")
     
     def mousePressEvent(self, event):
