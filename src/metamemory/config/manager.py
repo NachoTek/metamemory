@@ -247,7 +247,6 @@ class ConfigManager:
         return {
             # Model settings
             "model.realtime_model_size",
-            "model.enhancement_model_size",
             # Transcription settings
             "transcription.enabled",
             "transcription.confidence_threshold",

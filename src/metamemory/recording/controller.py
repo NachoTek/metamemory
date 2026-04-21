@@ -429,7 +429,6 @@ class RecordingController:
                 start_time=word_start,
                 end_time=word_end,
                 confidence=result.confidence,
-                is_enhanced=False,
                 speaker_id=None
             )
             words.append(word)
@@ -450,12 +449,12 @@ class RecordingController:
         
         Args:
             job_id: The job identifier
-            result: Result dictionary with enhanced_path, etc.
+            result: Result dictionary with transcript_path, etc.
         """
         print(f"DEBUG: Post-processing job {job_id} completed!")
-        print(f"DEBUG: Enhanced transcript: {result.get('enhanced_path')}")
+        print(f"DEBUG: Post-processed transcript: {result.get('enhanced_path')}")
         print(f"DEBUG: Real-time words: {result.get('realtime_word_count')}")
-        print(f"DEBUG: Enhanced words: {result.get('word_count')}")
+        print(f"DEBUG: Post-processed words: {result.get('word_count')}")
         
         if self.on_post_process_complete:
             enhanced_path_str = result.get('enhanced_path')
@@ -535,40 +534,3 @@ class RecordingController:
     def get_transcript_store(self) -> Optional[TranscriptStore]:
         """Get the current transcript store (for UI access during recording)."""
         return self._transcript_store
-
-    def get_enhancement_status(self) -> dict:
-        """Get current enhancement status for UI display.
-
-        Returns:
-            Dict with queue_size, workers_active, and total_enhanced
-        """
-        if not self._transcription_processor:
-            return {
-                'queue_size': 0,
-                'workers_active': 0,
-                'total_enhanced': 0,
-                'enabled': False
-            }
-        return self._transcription_processor.get_enhancement_status()
-
-    def update_enhancement_settings(self, settings: dict) -> None:
-        """Update enhancement settings on the running transcription processor.
-        
-        Args:
-            settings: Dictionary with enhancement settings:
-                - confidence_threshold: float (0.0-1.0)
-                - num_workers: int
-        """
-        if not self._transcription_processor:
-            print("DEBUG: No transcription processor to update")
-            return
-        
-        threshold = settings.get('confidence_threshold')
-        if threshold is not None and self._transcription_processor._enhancement_config:
-            self._transcription_processor._enhancement_config.confidence_threshold = threshold
-            print(f"DEBUG: Updated enhancement threshold to {threshold*100}%")
-            
-            # Also update the queue's threshold
-            if self._transcription_processor._enhancement_queue:
-                self._transcription_processor._enhancement_queue.confidence_threshold = threshold
-                print(f"DEBUG: Updated queue threshold to {threshold*100}%")

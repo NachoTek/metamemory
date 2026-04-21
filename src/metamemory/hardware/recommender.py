@@ -65,8 +65,8 @@ def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> s
     - If RAM < 6GB OR CPU < 4 cores: recommend "tiny" (required for low-end)
     - Otherwise: recommend "tiny" (for < 2s latency target)
     
-    NOTE: Dual-mode architecture (Phase 3) will use tiny for real-time
-    and larger models for post-recording enhancement.
+    NOTE: Post-processing architecture uses tiny for real-time
+    and larger models for post-recording transcription.
     
     Args:
         specs: System hardware specifications
@@ -97,7 +97,7 @@ def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> s
         return "tiny"
     
     # Even on high-end hardware, use tiny for real-time
-    # Dual-mode will use larger models for enhancement after recording
+    # Post-processing will use larger models for post-recording transcription
     return "tiny"
 
 

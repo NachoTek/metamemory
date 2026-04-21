@@ -138,10 +138,6 @@ to avoid clipping issues and enable proper text rendering.
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self._update_animations)
         self.animation_timer.start(33)  # ~30fps
-
-        # Timer for enhancement status updates
-        self._status_update_counter = 0
-        self._status_update_interval = 15  # Update every 15 animation frames (~500ms)
         
         self.pulse_phase = 0.0
         
@@ -191,24 +187,19 @@ to avoid clipping issues and enable proper text rendering.
 
         # Connect model_changed signal to save config
         self._floating_settings_panel.model_changed.connect(save_config)
-        self._floating_settings_panel.enhancement_settings_changed.connect(self._on_enhancement_settings_changed)
 
         print("DEBUG: Created floating settings panel")
     
-    def _on_panel_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool, enhanced: bool = False):
+    def _on_panel_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool):
         """Handle segment signal from panel (runs on main thread)."""
-        if enhanced:
-            print(f"[PANEL ENHANCED] Received enhanced segment signal: '{text}'")
-
-        print(f"DEBUG Panel Signal: text='{text[:30]}...', idx={segment_index}, phrase_start={phrase_start}, enhanced={enhanced}")
+        print(f"DEBUG Panel Signal: text='{text[:30]}...', idx={segment_index}, phrase_start={phrase_start}")
         try:
             self._floating_transcript_panel.update_segment(
                 text=text,
                 confidence=confidence,
                 segment_index=segment_index,
                 is_final=is_final,
-                phrase_start=phrase_start,
-                enhanced=enhanced
+                phrase_start=phrase_start
             )
             print(f"DEBUG Panel: Updated via signal successfully")
         except Exception as e:
@@ -305,48 +296,6 @@ to avoid clipping issues and enable proper text rendering.
                 self.pulse_phase = 0.0
             self.record_button.set_swirl_phase(self.pulse_phase)
 
-        # Update enhancement status periodically (~500ms)
-        self._status_update_counter += 1
-        if self._status_update_counter >= self._status_update_interval:
-            self._status_update_counter = 0
-            self._update_enhancement_status()
-
-    def _update_enhancement_status(self):
-        """Update enhancement status display in the transcript panel."""
-        print(f"[STATUS DEBUG] _update_enhancement_status called, is_recording={self.is_recording}, is_processing={self.is_processing}")
-
-        if not self._floating_transcript_panel or not self._controller:
-            print(f"[STATUS DEBUG] Early return: panel={self._floating_transcript_panel is not None}, controller={self._controller is not None}")
-            return
-
-        # Only update when recording is active
-        if not self.is_recording and not self.is_processing:
-            # NEW: Also check if enhancement is still active after recording stops
-            status = self._controller.get_enhancement_status()
-            if not status.get('enabled', False) or (status.get('queue_size', 0) == 0 and status.get('workers_active', 0) == 0):
-                return
-            # Enhancement is still active - continue updating even after recording stops
-            print(f"[STATUS DEBUG] Enhancement still active: queue={status.get('queue_size', 0)}, workers={status.get('workers_active', 0)}")
-
-        # Get status from controller
-        status = self._controller.get_enhancement_status()
-        print(f"[STATUS DEBUG] Status from controller: {status}")
-
-        # Update panel
-        if status.get('enabled', False):
-            queue_size = status.get('queue_size', 0)
-            workers_active = status.get('workers_active', 0)
-            total_enhanced = status.get('total_enhanced', 0)
-            print(f"[STATUS DEBUG] Updating panel: queue={queue_size}, workers={workers_active}, enhanced={total_enhanced}")
-            self._floating_transcript_panel.update_enhancement_status(
-                queue_size=queue_size,
-                workers_active=workers_active,
-                total_enhanced=total_enhanced
-            )
-        else:
-            print(f"[STATUS DEBUG] Enhancement not enabled, status: {status}")
-            self._floating_transcript_panel.enhancement_status_label.setText("Enhancement: Disabled")
-    
     def mousePressEvent(self, event):
         """Record press position for click vs drag detection."""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -541,13 +490,8 @@ to avoid clipping issues and enable proper text rendering.
             result: SegmentResult with text, confidence, and completion status
         """
         phrase_start = getattr(result, 'phrase_start', False)
-        enhanced = getattr(result, 'enhanced', False)  # Get enhancement status
 
-        if enhanced:
-            print(f"[UI ENHANCED] Received enhanced segment: '{result.text}'")
-            print(f"[UI ENHANCED] segment_index={result.segment_index}, phrase_start={phrase_start}")
-
-        print(f"DEBUG UI: Segment: '{result.text}' [conf: {result.confidence}%, final: {result.is_final}, phrase_start: {phrase_start}, enhanced: {enhanced}]")
+        print(f"DEBUG UI: Segment: '{result.text}' [conf: {result.confidence}%, final: {result.is_final}, phrase_start: {phrase_start}]")
 
         if self._floating_transcript_panel:
             # Emit signal (thread-safe, automatically queues to main thread)
@@ -556,10 +500,9 @@ to avoid clipping issues and enable proper text rendering.
                 result.confidence,
                 result.segment_index,
                 result.is_final,
-                phrase_start,
-                enhanced
+                phrase_start
             )
-            print(f"DEBUG UI: Emitted signal with phrase_start={phrase_start}, enhanced={enhanced}")
+            print(f"DEBUG UI: Emitted signal with phrase_start={phrase_start}")
         else:
             print("DEBUG UI: No floating transcript panel available!")
     
@@ -580,39 +523,15 @@ to avoid clipping issues and enable proper text rendering.
 
         Args:
             job_id: The post-processing job ID
-            enhanced_path: Path to the enhanced transcript file
+            enhanced_path: Path to the post-processed transcript file
         """
         print(f"DEBUG UI: Post-processing complete! Job: {job_id}")
-        print(f"DEBUG UI: Enhanced transcript saved to: {enhanced_path}")
+        print(f"DEBUG UI: Post-processed transcript saved to: {enhanced_path}")
 
         # Update panel status
         if self._floating_transcript_panel:
-            self._floating_transcript_panel.status_label.setText(f"Enhanced transcript saved!")
+            self._floating_transcript_panel.status_label.setText(f"Post-processed transcript saved!")
             QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
-
-    def _on_enhancement_settings_changed(self, settings: dict):
-        """Handle enhancement settings changes.
-
-        Args:
-            settings: Dictionary with enhancement settings (confidence_threshold, num_workers)
-        """
-        print(f"DEBUG UI: Enhancement settings changed: {settings}")
-        
-        # Persist settings to config file so they apply to future recordings
-        from metamemory.config import set_config, save_config
-        
-        if 'confidence_threshold' in settings:
-            set_config('enhancement.confidence_threshold', settings['confidence_threshold'])
-        if 'num_workers' in settings:
-            set_config('enhancement.num_workers', settings['num_workers'])
-        
-        # Save config to disk
-        save_config()
-        print(f"DEBUG UI: Enhancement settings saved to config")
-        
-        # Also update running processor if recording is active
-        if self._controller:
-            self._controller.update_enhancement_settings(settings)
 
     def toggle_transcript_panel(self):
         """Toggle floating transcript panel visibility."""

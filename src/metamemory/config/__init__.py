@@ -14,7 +14,7 @@ Quick Start:
     >>> save_config()
 
 Settings Categories:
-    - model: Model selection (realtime_model_size, enhancement_model_size)
+    - model: Model selection (realtime_model_size)
     - transcription: Transcription behavior (enabled, confidence_threshold, etc.)
     - hardware: Hardware detection and recommendations
     - ui: UI behavior and appearance

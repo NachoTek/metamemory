@@ -288,12 +288,12 @@ class PostProcessingQueue:
             segments = engine.transcribe_chunk(audio_data)
             self._update_progress(job, 80)
             
-            # Create enhanced transcript
-            enhanced_store = self._create_enhanced_transcript(segments)
+            # Create post-processed transcript
+            enhanced_store = self._create_post_processed_transcript(segments)
             self._update_progress(job, 90)
             
-            # Save enhanced transcript
-            enhanced_path = self._save_enhanced_transcript(job, enhanced_store)
+            # Save post-processed transcript
+            enhanced_path = self._save_post_processed_transcript(job, enhanced_store)
             self._update_progress(job, 100)
             
             # Mark complete
@@ -381,7 +381,7 @@ class PostProcessingQueue:
             
             return audio
     
-    def _create_enhanced_transcript(
+    def _create_post_processed_transcript(
         self, 
         segments: List[TranscriptionSegment]
     ) -> TranscriptStore:
@@ -406,7 +406,6 @@ class PostProcessingQueue:
                         start_time=word_info.start if hasattr(word_info, 'start') else 0.0,
                         end_time=word_info.end if hasattr(word_info, 'end') else 0.0,
                         confidence=word_info.confidence if hasattr(word_info, 'confidence') else 85,
-                        is_enhanced=True,  # Mark as enhanced
                         speaker_id=None
                     )
                     words.append(word)
@@ -421,7 +420,6 @@ class PostProcessingQueue:
                         start_time=segment.start + (i * word_duration),
                         end_time=segment.start + ((i + 1) * word_duration),
                         confidence=segment.confidence,
-                        is_enhanced=True,
                         speaker_id=None
                     )
                     words.append(word)
@@ -431,8 +429,8 @@ class PostProcessingQueue:
         
         return store
     
-    def _save_enhanced_transcript(self, job: PostProcessJob, store: TranscriptStore) -> Path:
-        """Save enhanced transcript to file.
+    def _save_post_processed_transcript(self, job: PostProcessJob, store: TranscriptStore) -> Path:
+        """Save post-processed transcript to file.
         
         Args:
             job: The job being processed
@@ -441,14 +439,14 @@ class PostProcessingQueue:
         Returns:
             Path to saved file
         """
-        # Create enhanced filename
+        # Create post-processed filename
         base_name = job.audio_file.stem
         enhanced_path = job.output_dir / f"{base_name}_enhanced.md"
         
-        # Save with enhanced marker
+        # Save with post-processed marker
         store.save_to_file(enhanced_path)
         
-        print(f"DEBUG: Saved enhanced transcript to {enhanced_path}")
+        print(f"DEBUG: Saved post-processed transcript to {enhanced_path}")
         return enhanced_path
     
     def _update_progress(self, job: PostProcessJob, progress: int) -> None:

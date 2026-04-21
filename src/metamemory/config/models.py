@@ -16,17 +16,10 @@ class ModelSettings:
         realtime_model_size: Model size for real-time transcription.
             Options: "tiny", "base", "small", "auto"
             Default: "auto" (triggers hardware detection on first run)
-        enhancement_model_size: Model size for background enhancement (Phase 3).
-            Options: "small", "medium", "large"
-            Default: "medium"
     """
     realtime_model_size: str = field(
         default="auto",
         metadata={"description": "Model size for real-time transcription: tiny, base, small, or auto"}
-    )
-    enhancement_model_size: str = field(
-        default="medium",
-        metadata={"description": "Model size for enhancement: small, medium, or large"}
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -37,204 +30,8 @@ class ModelSettings:
     def from_dict(cls, data: Dict[str, Any]) -> "ModelSettings":
         """Create from dictionary, using defaults for missing fields."""
         return cls(
-            realtime_model_size=data.get("realtime_model_size", cls.realtime_model_size),
-            enhancement_model_size=data.get("enhancement_model_size", cls.enhancement_model_size)
+            realtime_model_size=data.get("realtime_model_size", cls.realtime_model_size)
         )
-
-
-@dataclass
-class EnhancementSettings:
-    """Configuration for enhancement processing.
-    
-    Attributes:
-        confidence_threshold: Minimum confidence score to trigger enhancement (default: 0.7)
-        num_workers: Number of parallel workers for enhancement processing (default: 4)
-        min_workers: Minimum number of workers for dynamic scaling (default: 2)
-        max_workers: Maximum number of workers for dynamic scaling (default: 8)
-        max_queue_size: Maximum segments in enhancement queue (default: 100)
-        enhancement_model: Whisper model size for enhancement (default: "medium")
-        dynamic_scaling: Enable auto-scaling of workers based on system load (default: True)
-        cpu_usage_threshold: CPU usage threshold for worker scaling (default: 0.8)
-        ram_usage_threshold: RAM usage threshold for worker scaling (default: 0.85)
-        worker_scaling_algorithm: Algorithm for worker scaling - "adaptive", "linear", or "none" (default: "adaptive")
-        
-        # Graceful degradation settings
-        enable_graceful_degradation: Enable graceful degradation under resource constraints (default: True)
-        degradation_cpu_threshold: CPU threshold to trigger degradation mode (default: 0.9)
-        degradation_ram_threshold: RAM threshold to trigger degradation mode (default: 0.9)
-        degradation_strategy: Strategy for handling degradation - "reduce_workers", "skip_low_confidence", "queue_only" (default: "reduce_workers")
-        fallback_on_failure: Fall back to original text when enhancement fails (default: True)
-        max_retries_before_fallback: Maximum retries before falling back (default: 2)
-        degradation_logging: Enable detailed logging during degradation (default: True)
-        queue_overflow_strategy: Strategy when queue overflows - "drop_oldest", "drop_newest", "pause_enqueue" (default: "drop_oldest")
-    """
-    confidence_threshold: float = field(
-        default=0.7,
-        metadata={"description": "Minimum confidence score to trigger enhancement (0.0-1.0)"}
-    )
-    num_workers: int = field(
-        default=4,
-        metadata={"description": "Number of parallel workers for enhancement processing"}
-    )
-    min_workers: int = field(
-        default=2,
-        metadata={"description": "Minimum number of workers for dynamic scaling"}
-    )
-    max_workers: int = field(
-        default=8,
-        metadata={"description": "Maximum number of workers for dynamic scaling"}
-    )
-    max_queue_size: int = field(
-        default=100,
-        metadata={"description": "Maximum segments in enhancement queue"}
-    )
-    enhancement_model: str = field(
-        default="medium",
-        metadata={"description": "Whisper model size for enhancement: small, medium, large"}
-    )
-    dynamic_scaling: bool = field(
-        default=True,
-        metadata={"description": "Enable auto-scaling of workers based on system load"}
-    )
-    cpu_usage_threshold: float = field(
-        default=0.8,
-        metadata={"description": "CPU usage threshold for worker scaling (0.0-1.0)"}
-    )
-    ram_usage_threshold: float = field(
-        default=0.85,
-        metadata={"description": "RAM usage threshold for worker scaling (0.0-1.0)"}
-    )
-    worker_scaling_algorithm: str = field(
-        default="adaptive",
-        metadata={"description": "Algorithm for worker scaling: adaptive, linear, or none"}
-    )
-    
-    # Graceful degradation settings
-    enable_graceful_degradation: bool = field(
-        default=True,
-        metadata={"description": "Enable graceful degradation under resource constraints"}
-    )
-    degradation_cpu_threshold: float = field(
-        default=0.9,
-        metadata={"description": "CPU threshold (0.0-1.0) to trigger degradation mode"}
-    )
-    degradation_ram_threshold: float = field(
-        default=0.9,
-        metadata={"description": "RAM threshold (0.0-1.0) to trigger degradation mode"}
-    )
-    degradation_strategy: str = field(
-        default="reduce_workers",
-        metadata={"description": "Strategy for degradation: reduce_workers, skip_low_confidence, or queue_only"}
-    )
-    fallback_on_failure: bool = field(
-        default=True,
-        metadata={"description": "Fall back to original text when enhancement fails"}
-    )
-    max_retries_before_fallback: int = field(
-        default=2,
-        metadata={"description": "Maximum retries before falling back to original"}
-    )
-    degradation_logging: bool = field(
-        default=True,
-        metadata={"description": "Enable detailed logging during degradation events"}
-    )
-    queue_overflow_strategy: str = field(
-        default="drop_oldest",
-        metadata={"description": "Strategy when queue overflows: drop_oldest, drop_newest, or pause_enqueue"}
-    )
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EnhancementSettings":
-        """Create from dictionary, using defaults for missing fields."""
-        return cls(
-            confidence_threshold=data.get("confidence_threshold", cls.confidence_threshold),
-            num_workers=data.get("num_workers", cls.num_workers),
-            min_workers=data.get("min_workers", cls.min_workers),
-            max_workers=data.get("max_workers", cls.max_workers),
-            max_queue_size=data.get("max_queue_size", cls.max_queue_size),
-            enhancement_model=data.get("enhancement_model", cls.enhancement_model),
-            dynamic_scaling=data.get("dynamic_scaling", cls.dynamic_scaling),
-            cpu_usage_threshold=data.get("cpu_usage_threshold", cls.cpu_usage_threshold),
-            ram_usage_threshold=data.get("ram_usage_threshold", cls.ram_usage_threshold),
-            worker_scaling_algorithm=data.get("worker_scaling_algorithm", cls.worker_scaling_algorithm),
-            # Graceful degradation settings
-            enable_graceful_degradation=data.get("enable_graceful_degradation", cls.enable_graceful_degradation),
-            degradation_cpu_threshold=data.get("degradation_cpu_threshold", cls.degradation_cpu_threshold),
-            degradation_ram_threshold=data.get("degradation_ram_threshold", cls.degradation_ram_threshold),
-            degradation_strategy=data.get("degradation_strategy", cls.degradation_strategy),
-            fallback_on_failure=data.get("fallback_on_failure", cls.fallback_on_failure),
-            max_retries_before_fallback=data.get("max_retries_before_fallback", cls.max_retries_before_fallback),
-            degradation_logging=data.get("degradation_logging", cls.degradation_logging),
-            queue_overflow_strategy=data.get("queue_overflow_strategy", cls.queue_overflow_strategy)
-        )
-    
-    def validate(self) -> List[str]:
-        """
-        Validate enhancement settings and return list of errors.
-        
-        Returns:
-            List[str]: List of validation error messages (empty if valid)
-        """
-        errors = []
-        
-        # Validate confidence threshold
-        if not 0.0 <= self.confidence_threshold <= 1.0:
-            errors.append(f"confidence_threshold must be between 0.0 and 1.0, got {self.confidence_threshold}")
-        
-        # Validate worker counts
-        if self.num_workers < 1:
-            errors.append(f"num_workers must be at least 1, got {self.num_workers}")
-        if self.min_workers < 1:
-            errors.append(f"min_workers must be at least 1, got {self.min_workers}")
-        if self.max_workers < 1:
-            errors.append(f"max_workers must be at least 1, got {self.max_workers}")
-        if self.min_workers > self.max_workers:
-            errors.append(f"min_workers ({self.min_workers}) cannot be greater than max_workers ({self.max_workers})")
-        if not (self.min_workers <= self.num_workers <= self.max_workers):
-            errors.append(f"num_workers ({self.num_workers}) must be between min_workers ({self.min_workers}) and max_workers ({self.max_workers})")
-        
-        # Validate queue size
-        if self.max_queue_size < 1:
-            errors.append(f"max_queue_size must be at least 1, got {self.max_queue_size}")
-        
-        # Validate CPU usage threshold
-        if not 0.0 <= self.cpu_usage_threshold <= 1.0:
-            errors.append(f"cpu_usage_threshold must be between 0.0 and 1.0, got {self.cpu_usage_threshold}")
-        
-        # Validate RAM usage threshold
-        if not 0.0 <= self.ram_usage_threshold <= 1.0:
-            errors.append(f"ram_usage_threshold must be between 0.0 and 1.0, got {self.ram_usage_threshold}")
-        
-        # Validate scaling algorithm
-        valid_algorithms = ["adaptive", "linear", "none"]
-        if self.worker_scaling_algorithm not in valid_algorithms:
-            errors.append(f"worker_scaling_algorithm must be one of {valid_algorithms}, got {self.worker_scaling_algorithm}")
-        
-        # Validate degradation thresholds
-        if not 0.0 <= self.degradation_cpu_threshold <= 1.0:
-            errors.append(f"degradation_cpu_threshold must be between 0.0 and 1.0, got {self.degradation_cpu_threshold}")
-        if not 0.0 <= self.degradation_ram_threshold <= 1.0:
-            errors.append(f"degradation_ram_threshold must be between 0.0 and 1.0, got {self.degradation_ram_threshold}")
-        
-        # Validate degradation strategy
-        valid_strategies = ["reduce_workers", "skip_low_confidence", "queue_only"]
-        if self.degradation_strategy not in valid_strategies:
-            errors.append(f"degradation_strategy must be one of {valid_strategies}, got {self.degradation_strategy}")
-        
-        # Validate queue overflow strategy
-        valid_overflow = ["drop_oldest", "drop_newest", "pause_enqueue"]
-        if self.queue_overflow_strategy not in valid_overflow:
-            errors.append(f"queue_overflow_strategy must be one of {valid_overflow}, got {self.queue_overflow_strategy}")
-        
-        # Validate retries
-        if self.max_retries_before_fallback < 0:
-            errors.append(f"max_retries_before_fallback must be >= 0, got {self.max_retries_before_fallback}")
-        
-        return errors
 
 
 @dataclass
@@ -248,7 +45,7 @@ class TranscriptionSettings:
     Attributes:
         enabled: Whether transcription is enabled.
             Default: True
-        confidence_threshold: Threshold for triggering enhancement (Phase 3).
+        confidence_threshold: Confidence threshold for display coloring.
             Range: 0.0 to 1.0
             Default: 0.7
         min_chunk_size_sec: Minimum audio chunk size for VAD/processing.
@@ -272,7 +69,7 @@ class TranscriptionSettings:
     )
     confidence_threshold: float = field(
         default=0.7,
-        metadata={"description": "Confidence threshold for enhancement trigger (0.0-1.0)"}
+        metadata={"description": "Confidence threshold for display coloring (0.0-1.0)"}
     )
     min_chunk_size_sec: float = field(
         default=0.5,  # Reduced from 1.0s for lower latency (target < 2s total)
@@ -437,7 +234,6 @@ class AppSettings:
         transcription: Transcription behavior settings.
         hardware: Hardware detection and recommendation settings.
         ui: UI behavior and appearance settings.
-        enhancement: Enhancement processing settings.
     """
     config_version: int = field(
         default=1,
@@ -447,7 +243,6 @@ class AppSettings:
     transcription: TranscriptionSettings = field(default_factory=TranscriptionSettings)
     hardware: HardwareSettings = field(default_factory=HardwareSettings)
     ui: UISettings = field(default_factory=UISettings)
-    enhancement: EnhancementSettings = field(default_factory=EnhancementSettings)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -456,8 +251,7 @@ class AppSettings:
             "model": self.model.to_dict(),
             "transcription": self.transcription.to_dict(),
             "hardware": self.hardware.to_dict(),
-            "ui": self.ui.to_dict(),
-            "enhancement": self.enhancement.to_dict()
+            "ui": self.ui.to_dict()
         }
 
     @classmethod
@@ -468,15 +262,13 @@ class AppSettings:
         transcription_data = data.get("transcription", {})
         hardware_data = data.get("hardware", {})
         ui_data = data.get("ui", {})
-        enhancement_data = data.get("enhancement", {})
         
         return cls(
             config_version=data.get("config_version", cls.config_version),
             model=ModelSettings.from_dict(model_data) if isinstance(model_data, dict) else ModelSettings(),
             transcription=TranscriptionSettings.from_dict(transcription_data) if isinstance(transcription_data, dict) else TranscriptionSettings(),
             hardware=HardwareSettings.from_dict(hardware_data) if isinstance(hardware_data, dict) else HardwareSettings(),
-            ui=UISettings.from_dict(ui_data) if isinstance(ui_data, dict) else UISettings(),
-            enhancement=EnhancementSettings.from_dict(enhancement_data) if isinstance(enhancement_data, dict) else EnhancementSettings()
+            ui=UISettings.from_dict(ui_data) if isinstance(ui_data, dict) else UISettings()
         )
 
     @classmethod

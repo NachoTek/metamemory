@@ -1,7 +1,7 @@
 """Fake audio module for testing without real audio devices.
 
 Provides file-driven audio source that emits PCM frames for deterministic tests.
-Includes enhancement testing support with confidence variation and ground truth.
+Includes confidence variation support and ground truth tracking for accuracy testing.
 """
 
 import wave
@@ -55,7 +55,7 @@ class FakeAudioModule:
     This provides a deterministic audio source for automated testing without
     requiring real audio hardware. It mimics the API of SoundDeviceSource.
     
-    Enhancement Testing Features:
+    Testing Features:
     - Confidence-based audio generation with varying levels
     - Test audio with known ground truth for accuracy measurement
     - Configurable test audio patterns for different scenarios
@@ -85,7 +85,7 @@ class FakeAudioModule:
             queue_size: Maximum size of internal queue
             loop: Whether to loop the file when it ends
             noise_level: Amount of noise to add (0.0-1.0). Higher = lower confidence.
-            test_config: Optional TestAudioConfig for enhancement testing
+            test_config: Optional TestAudioConfig for testing
             confidence_variation: Enable confidence variation for testing
             confidence_pattern: Pattern for confidence variation
             confidence_min: Minimum confidence level for variation

@@ -41,8 +41,8 @@ class HardwareDetector:
     and cache results to avoid repeated system calls.
     
     Minimum Requirements:
-        - Single-mode (realtime only): 4GB RAM, 2 cores
-        - Dual-mode (realtime + enhancement): 8GB RAM, 4 cores
+        - Standard (realtime): 4GB RAM, 2 cores
+        - Post-processing (realtime + post-process): 8GB RAM, 4 cores
     
     Example:
         >>> detector = HardwareDetector()
@@ -138,8 +138,8 @@ class HardwareDetector:
         
         Args:
             specs: SystemSpecs to check. If None, calls detect().
-            dual_mode: If True, checks dual-mode requirements (8GB, 4 cores).
-                      If False, checks single-mode requirements (4GB, 2 cores).
+            dual_mode: If True, checks post-processing requirements (8GB, 4 cores).
+                      If False, checks standard requirements (4GB, 2 cores).
                       
         Returns:
             True if system meets minimum requirements
@@ -168,7 +168,7 @@ class HardwareDetector:
         
         Args:
             specs: SystemSpecs to check. If None, calls detect().
-            dual_mode: If True, checks dual-mode requirements.
+            dual_mode: If True, checks post-processing requirements.
                       
         Returns:
             Warning message string if below minimum, None if requirements met
@@ -182,11 +182,11 @@ class HardwareDetector:
         if dual_mode:
             min_ram = self.DUAL_MODE_MIN_RAM_GB
             min_cores = self.DUAL_MODE_MIN_CORES
-            mode_name = "dual-mode (realtime + enhancement)"
+            mode_name = "post-processing (realtime + post-process)"
         else:
             min_ram = self.SINGLE_MODE_MIN_RAM_GB
             min_cores = self.SINGLE_MODE_MIN_CORES
-            mode_name = "single-mode (realtime only)"
+            mode_name = "standard (realtime only)"
         
         issues = []
         if specs.total_ram_gb < min_ram:
