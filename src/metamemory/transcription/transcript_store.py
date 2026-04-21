@@ -21,14 +21,12 @@ class Word:
         start_time: Start timestamp in seconds from recording start
         end_time: End timestamp in seconds
         confidence: Confidence score (0-100)
-        is_enhanced: Whether this word was enhanced by large model (Phase 3)
         speaker_id: Optional speaker identifier (Phase 4)
     """
     text: str
     start_time: float
     end_time: float
     confidence: int
-    is_enhanced: bool = False
     speaker_id: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
@@ -38,7 +36,6 @@ class Word:
             "start_time": self.start_time,
             "end_time": self.end_time,
             "confidence": self.confidence,
-            "is_enhanced": self.is_enhanced,
             "speaker_id": self.speaker_id,
         }
 

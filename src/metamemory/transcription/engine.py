@@ -465,48 +465,6 @@ class WhisperTranscriptionEngine:
         }
     
     @classmethod
-    def get_enhancement_model(cls, hardware_info: Optional[Dict[str, Any]] = None) -> str:
-        """Get recommended model size for enhancement based on hardware.
-        
-        Enhancement uses larger models for better accuracy. The model size
-        is selected based on available hardware resources.
-        
-        Args:
-            hardware_info: Optional dict with 'ram_gb' and 'cpu_cores' keys.
-                         If not provided, will use system detection.
-            
-        Returns:
-            Recommended model size: 'medium', 'large', or 'large-v3'
-            
-        Example:
-            >>> model = WhisperTranscriptionEngine.get_enhancement_model({'ram_gb': 16, 'cpu_cores': 8})
-            >>> model
-            'medium'
-        """
-        # If no hardware info provided, use conservative defaults
-        if hardware_info is None:
-            hardware_info = {'ram_gb': 8, 'cpu_cores': 4}
-        
-        ram_gb = hardware_info.get('ram_gb', 8)
-        cpu_cores = hardware_info.get('cpu_cores', 4)
-        
-        # Model size selection for enhancement (larger than real-time)
-        # Priority: Accuracy > Speed (enhancement is background processing)
-        if ram_gb >= 16 and cpu_cores >= 8:
-            # High-end hardware: use large-v3 model
-            return 'large'
-        elif ram_gb >= 12 and cpu_cores >= 6:
-            # Mid-high hardware: use medium model
-            return 'medium'
-        elif ram_gb >= 8 and cpu_cores >= 4:
-            # Mid-range hardware: use medium model (good balance)
-            return 'medium'
-        else:
-            # Low-end hardware: still use medium for accuracy
-            # Enhancement is background processing, speed is less critical
-            return 'medium'
-    
-    @classmethod
     def validate_model_size(cls, model_size: str) -> bool:
         """Validate that a model size is supported.
         
