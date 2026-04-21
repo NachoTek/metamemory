@@ -308,6 +308,10 @@ class TestAudioSessionLifecycle:
         
         assert wav_path1.exists()
         
+        # Ensure unique timestamp for second recording filename
+        import time as _time
+        _time.sleep(1.1)
+        
         # Second recording (reuse same session)
         session.start(config)
         time.sleep(0.1)
