@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from metamemory.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
 from metamemory.transcription.transcript_store import TranscriptStore
-from metamemory.config.models import TranscriptionSettings
+from metamemory.config.models import AppSettings, TranscriptionSettings
 
 
 def convert_mp3_to_wav(mp3_path: Path) -> Path:
@@ -102,7 +102,8 @@ def test_with_sample_audio():
         agreement_threshold=1     # Immediate commit
     )
     
-    processor = RealTimeTranscriptionProcessor(config)
+    app_config = AppSettings(transcription=config)
+    processor = RealTimeTranscriptionProcessor(app_config)
     processor.set_model_config(model_size='tiny', device='cpu', compute_type='int8')
     
     # Load model
@@ -167,7 +168,6 @@ def test_with_sample_audio():
                          start_time=w.start if hasattr(w, 'start') else 0,
                          end_time=w.end if hasattr(w, 'end') else 0,
                          confidence=result.confidence,
-                         is_enhanced=False,
                          speaker_id=None)
                     for w in result.words
                 ]
@@ -238,7 +238,8 @@ def test_latency_measurement():
         agreement_threshold=1
     )
     
-    processor = RealTimeTranscriptionProcessor(config)
+    app_config = AppSettings(transcription=config)
+    processor = RealTimeTranscriptionProcessor(app_config)
     processor.set_model_config(model_size='tiny', device='cpu', compute_type='int8')
     
     print("Loading model...")

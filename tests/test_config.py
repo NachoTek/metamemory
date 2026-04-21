@@ -68,34 +68,29 @@ class TestModelSettings:
         """Test default values are correct."""
         settings = ModelSettings()
         assert settings.realtime_model_size == "auto"
-        assert settings.enhancement_model_size == "medium"
     
     def test_to_dict(self):
         """Test serialization to dict."""
         settings = ModelSettings(realtime_model_size="small")
         d = settings.to_dict()
         assert d["realtime_model_size"] == "small"
-        assert d["enhancement_model_size"] == "medium"
     
     def test_from_dict(self):
         """Test deserialization from dict."""
-        d = {"realtime_model_size": "base", "enhancement_model_size": "large"}
+        d = {"realtime_model_size": "base"}
         settings = ModelSettings.from_dict(d)
         assert settings.realtime_model_size == "base"
-        assert settings.enhancement_model_size == "large"
     
     def test_from_dict_missing_fields(self):
         """Test from_dict uses defaults for missing fields."""
         d = {"realtime_model_size": "tiny"}
         settings = ModelSettings.from_dict(d)
         assert settings.realtime_model_size == "tiny"
-        assert settings.enhancement_model_size == "medium"  # default
     
     def test_from_dict_empty_dict(self):
         """Test from_dict with empty dict uses all defaults."""
         settings = ModelSettings.from_dict({})
         assert settings.realtime_model_size == "auto"
-        assert settings.enhancement_model_size == "medium"
 
 
 class TestTranscriptionSettings:
@@ -106,8 +101,8 @@ class TestTranscriptionSettings:
         settings = TranscriptionSettings()
         assert settings.enabled is True
         assert settings.confidence_threshold == 0.7
-        assert settings.min_chunk_size_sec == 1.0
-        assert settings.agreement_threshold == 2
+        assert settings.min_chunk_size_sec == 0.5
+        assert settings.agreement_threshold == 1
     
     def test_to_dict_from_dict_roundtrip(self):
         """Test serialization roundtrip."""

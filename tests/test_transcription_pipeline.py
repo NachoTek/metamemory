@@ -22,7 +22,7 @@ from metamemory.transcription.engine import WhisperTranscriptionEngine
 from metamemory.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
 from metamemory.transcription.transcript_store import TranscriptStore, Word
 from metamemory.transcription.audio_buffer import AudioRingBuffer
-from metamemory.config.models import TranscriptionSettings
+from metamemory.config.models import AppSettings, TranscriptionSettings
 
 
 class TestTranscriptionPipeline:
@@ -48,6 +48,11 @@ class TestTranscriptionPipeline:
             agreement_threshold=1     # Immediate commit for streaming
         )
     
+    @pytest.fixture
+    def app_config(self, transcription_config: TranscriptionSettings) -> AppSettings:
+        """Full app settings wrapping transcription config."""
+        return AppSettings(transcription=transcription_config)
+    
     def test_sample_files_exist(self, sample_audio_path: Path, sample_transcript_path: Path):
         """Verify sample files are available."""
         assert sample_audio_path.exists(), f"Sample audio not found: {sample_audio_path}"
@@ -55,12 +60,12 @@ class TestTranscriptionPipeline:
         print(f"✓ Sample audio: {sample_audio_path} ({sample_audio_path.stat().st_size / 1024 / 1024:.1f} MB)")
         print(f"✓ Sample transcript: {sample_transcript_path} ({sample_transcript_path.stat().st_size / 1024:.1f} KB)")
     
-    def test_tiny_model_latency(self, transcription_config: TranscriptionSettings):
+    def test_tiny_model_latency(self, app_config: AppSettings):
         """Test that tiny model transcribes with acceptable latency (< 5 seconds per chunk)."""
         print("\n=== Testing Tiny Model Latency ===")
         
         # Create processor with tiny model
-        processor = RealTimeTranscriptionProcessor(transcription_config)
+        processor = RealTimeTranscriptionProcessor(app_config)
         processor.set_model_config(model_size='tiny', device='cpu', compute_type='int8')
         
         # Load model

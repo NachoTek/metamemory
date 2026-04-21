@@ -42,37 +42,42 @@ class TestSystemSpecs:
 
 
 class TestRecommendModelSize:
-    """Test model size recommendation algorithm."""
+    """Test model size recommendation algorithm.
+    
+    After the dual-mode removal, recommend_model_size always returns 'tiny'
+    for real-time transcription. Post-processing uses larger models via
+    PostProcessingQueue.
+    """
     
     def test_high_end_recommendation(self):
-        """Test high-end hardware (16GB+, 8+ cores) recommends 'small'."""
+        """Test high-end hardware recommends 'tiny' for real-time."""
         specs = SystemSpecs(
             total_ram_gb=16, available_ram_gb=8,
             cpu_count_logical=8, cpu_count_physical=4,
             cpu_freq_mhz=2400, is_64bit=True, platform='Windows'
         )
-        assert recommend_model_size(specs) == 'small'
+        assert recommend_model_size(specs) == 'tiny'
     
     def test_exact_boundary_12gb_8cores(self):
-        """Test exact boundary: 12GB RAM and 8 cores recommends 'small'."""
+        """Test 12GB RAM and 8 cores recommends 'tiny' for real-time."""
         specs = SystemSpecs(
             total_ram_gb=12, available_ram_gb=6,
             cpu_count_logical=8, cpu_count_physical=4,
             cpu_freq_mhz=2200, is_64bit=True, platform='Windows'
         )
-        assert recommend_model_size(specs) == 'small'
+        assert recommend_model_size(specs) == 'tiny'
     
     def test_mid_range_recommendation(self):
-        """Test mid-range hardware (8GB, 6 cores) recommends 'base'."""
+        """Test mid-range hardware (8GB, 6 cores) recommends 'tiny' for real-time."""
         specs = SystemSpecs(
             total_ram_gb=8, available_ram_gb=4,
             cpu_count_logical=6, cpu_count_physical=3,
             cpu_freq_mhz=2200, is_64bit=True, platform='Windows'
         )
-        assert recommend_model_size(specs) == 'base'
+        assert recommend_model_size(specs) == 'tiny'
     
     def test_low_ram_recommendation(self):
-        """Test <6GB RAM recommends 'tiny' regardless of CPU."""
+        """Test <6GB RAM recommends 'tiny'."""
         specs = SystemSpecs(
             total_ram_gb=4, available_ram_gb=2,
             cpu_count_logical=8, cpu_count_physical=4,  # Good CPU
@@ -81,7 +86,7 @@ class TestRecommendModelSize:
         assert recommend_model_size(specs) == 'tiny'
     
     def test_low_cpu_recommendation(self):
-        """Test <4 cores recommends 'tiny' regardless of RAM."""
+        """Test <4 cores recommends 'tiny'."""
         specs = SystemSpecs(
             total_ram_gb=16, available_ram_gb=8,  # Good RAM
             cpu_count_logical=2, cpu_count_physical=2,
@@ -90,25 +95,22 @@ class TestRecommendModelSize:
         assert recommend_model_size(specs) == 'tiny'
     
     def test_exact_boundary_6gb(self):
-        """Test exact 6GB boundary (should be 'base' since <6 is tiny)."""
+        """Test exact 6GB boundary recommends 'tiny' for real-time."""
         specs = SystemSpecs(
             total_ram_gb=6, available_ram_gb=3,
             cpu_count_logical=8, cpu_count_physical=4,
             cpu_freq_mhz=2400, is_64bit=True, platform='Windows'
         )
-        # 6GB is NOT <6GB, so it falls through to base check
-        # But 6GB IS <12GB, so it should be base
-        assert recommend_model_size(specs) == 'base'
+        assert recommend_model_size(specs) == 'tiny'
     
     def test_exact_boundary_4cores(self):
-        """Test exact 4 cores boundary (should be 'base' since <4 is tiny)."""
+        """Test exact 4 cores boundary recommends 'tiny' for real-time."""
         specs = SystemSpecs(
             total_ram_gb=16, available_ram_gb=8,
             cpu_count_logical=4, cpu_count_physical=2,
             cpu_freq_mhz=2400, is_64bit=True, platform='Windows'
         )
-        # 4 cores is NOT <4, so it falls through to base check
-        assert recommend_model_size(specs) == 'base'
+        assert recommend_model_size(specs) == 'tiny'
 
 
 class TestModelInfo:
