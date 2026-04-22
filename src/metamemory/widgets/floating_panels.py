@@ -7,15 +7,21 @@ that floats outside the main widget bounds.
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QFrame, QHBoxLayout, QPushButton,
-    QInputDialog, QApplication,
+    QInputDialog, QApplication, QTabWidget, QListWidget, QListWidgetItem,
+    QSplitter,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from metamemory.hardware.detector import HardwareDetector
 from metamemory.hardware.recommender import ModelRecommender
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +87,8 @@ class FloatingTranscriptPanel(QWidget):
             Qt.WindowType.Tool  # Don't show in taskbar
         )
         
-        # Size
-        self.setFixedSize(400, 300)
+        # Size — slightly larger to accommodate history view
+        self.setFixedSize(450, 400)
         
         # Style
         self.setStyleSheet("""
@@ -140,6 +146,45 @@ class FloatingTranscriptPanel(QWidget):
         
         layout.addLayout(header_layout)
         
+        # ------------------------------------------------------------------
+        # Tab widget — Live and History tabs
+        # ------------------------------------------------------------------
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #444;
+                border-radius: 5px;
+                background-color: #1a1a1a;
+            }
+            QTabBar::tab {
+                background-color: #2a2a2a;
+                color: #aaa;
+                padding: 6px 14px;
+                border: 1px solid #444;
+                border-bottom: none;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #333;
+                color: #4CAF50;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover {
+                background-color: #3a3a3a;
+            }
+        """)
+        layout.addWidget(self._tab_widget)
+
+        # ------------------------------------------------------------------
+        # Live tab — existing transcript display
+        # ------------------------------------------------------------------
+        live_tab = QWidget()
+        live_layout = QVBoxLayout(live_tab)
+        live_layout.setContentsMargins(0, 0, 0, 0)
+        live_layout.setSpacing(2)
+
         # Text edit for transcript
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
@@ -155,10 +200,11 @@ class FloatingTranscriptPanel(QWidget):
             }
         """)
         self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
-        # Handle anchor clicks on speaker labels
+        # Handle anchor clicks on speaker labels (signal only on QTextBrowser)
         self.text_edit.setMouseTracking(True)
-        self.text_edit.anchorClicked.connect(self._on_anchor_clicked)
-        layout.addWidget(self.text_edit)
+        if hasattr(self.text_edit, "anchorClicked"):
+            self.text_edit.anchorClicked.connect(self._on_anchor_clicked)
+        live_layout.addWidget(self.text_edit)
 
         # Status label
         self.status_label = QLabel("Ready")
@@ -169,7 +215,79 @@ class FloatingTranscriptPanel(QWidget):
                 padding: 3px;
             }
         """)
-        layout.addWidget(self.status_label)
+        live_layout.addWidget(self.status_label)
+
+        self._tab_widget.addTab(live_tab, "Live")
+
+        # ------------------------------------------------------------------
+        # History tab — recording list and transcript viewer
+        # ------------------------------------------------------------------
+        history_tab = QWidget()
+        history_layout = QVBoxLayout(history_tab)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        history_layout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #444;
+                height: 3px;
+            }
+        """)
+
+        # Top: recording list
+        self._history_list = QListWidget()
+        self._history_list.setStyleSheet("""
+            QListWidget {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: none;
+                border-radius: 5px;
+                font-size: 12px;
+                padding: 4px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+                border-bottom: 1px solid #333;
+            }
+            QListWidget::item:selected {
+                background-color: #37474F;
+                color: #fff;
+            }
+            QListWidget::item:hover {
+                background-color: #2f3f3f;
+            }
+        """)
+        self._history_list.itemClicked.connect(self._on_history_item_clicked)
+        splitter.addWidget(self._history_list)
+
+        # Bottom: transcript viewer (read-only)
+        self._history_viewer = QTextEdit()
+        self._history_viewer.setReadOnly(True)
+        self._history_viewer.setStyleSheet("""
+            QTextEdit {
+                background-color: #2a2a2a;
+                color: #fff;
+                border: none;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 13px;
+                line-height: 1.4;
+            }
+        """)
+        self._history_viewer.setFrameShape(QFrame.Shape.NoFrame)
+        self._history_viewer.setPlaceholderText("Select a recording to view its transcript")
+        splitter.addWidget(self._history_viewer)
+
+        # 40% list / 60% viewer
+        splitter.setSizes([160, 240])
+
+        history_layout.addWidget(splitter)
+        self._tab_widget.addTab(history_tab, "History")
+
+        # Connect tab change to refresh history when switching to it
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
         
         # Dragging
         self._dragging = False
@@ -396,6 +514,78 @@ class FloatingTranscriptPanel(QWidget):
         if link.startswith("speaker://"):
             speaker_id = link[len("speaker://"):]
             self._prompt_speaker_name(speaker_id)
+
+    # ------------------------------------------------------------------
+    # History tab methods
+    # ------------------------------------------------------------------
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Refresh history when switching to the History tab."""
+        if index == 1:  # History tab
+            self._refresh_history()
+
+    def _refresh_history(self) -> None:
+        """Re-scan recordings and repopulate the history list."""
+        try:
+            from metamemory.transcription.transcript_scanner import scan_recordings
+        except ImportError:
+            logger.warning("transcript_scanner not available — cannot populate history")
+            return
+        self._populate_history_list(scan_recordings())
+
+    def _populate_history_list(self, recordings: list) -> None:
+        """Populate the history QListWidget from a list of RecordingMeta.
+
+        Args:
+            recordings: List of RecordingMeta objects (expected sorted newest-first).
+        """
+        self._history_list.clear()
+        for meta in recordings:
+            # Format display date from ISO timestamp
+            display_date = meta.recording_time
+            if display_date:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(display_date)
+                    display_date = dt.strftime("%Y-%m-%d %H:%M")
+                except (ValueError, TypeError):
+                    pass  # keep raw string
+
+            if meta.word_count == 0:
+                display_text = f"{display_date} | (Empty recording)"
+            else:
+                display_text = (
+                    f"{display_date} | {meta.word_count} words"
+                    f" | {meta.speaker_count} speakers"
+                )
+
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, str(meta.path))
+            self._history_list.addItem(item)
+
+    def _on_history_item_clicked(self, item: QListWidgetItem) -> None:
+        """Load and display the transcript for the clicked history item."""
+        md_path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not md_path_str:
+            return
+        md_path = Path(md_path_str)
+        if not md_path.exists():
+            self._history_viewer.setPlainText(f"(File not found: {md_path})")
+            return
+
+        try:
+            content = md_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._history_viewer.setPlainText(f"(Error reading file: {exc})")
+            return
+
+        # Strip the JSON footer: everything from "\n---\n\n<!-- METADATA:" to end
+        footer_marker = "\n---\n\n<!-- METADATA:"
+        marker_idx = content.find(footer_marker)
+        if marker_idx != -1:
+            content = content[:marker_idx]
+
+        self._history_viewer.setMarkdown(content)
 
     # ------------------------------------------------------------------
     # Display rendering
