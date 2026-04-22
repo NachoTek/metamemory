@@ -229,6 +229,22 @@ def main():
     
     # Create and show the main widget
     widget = MeetAndReadWidget()
+    
+    # Create and wire system tray icon manager
+    from metamemory.widgets.tray_icon import TrayIconManager
+    tray = TrayIconManager(widget=widget)
+    tray.set_callbacks(
+        on_toggle_recording=widget.toggle_recording,
+        on_exit=widget._exit_application,
+    )
+    widget._tray_manager = tray
+    tray.show()
+    
+    # Do NOT quit when last window is hidden — tray keeps the app alive
+    app.setQuitOnLastWindowClosed(False)
+    
+    logging.info("Tray icon created and wired to main widget")
+    
     widget.show()
     
     sys.exit(app.exec())

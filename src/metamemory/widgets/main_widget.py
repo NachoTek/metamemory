@@ -14,6 +14,7 @@ to avoid clipping issues and enable proper text editing.
 
 from pathlib import Path
 from typing import Optional
+import logging
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsTextItem,
@@ -73,8 +74,11 @@ class MeetAndReadWidget(QGraphicsView):
 to avoid clipping issues and enable proper text rendering.
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, tray_manager=None):
         super().__init__(parent)
+        
+        # System tray integration
+        self._tray_manager = tray_manager
         
         # Window configuration
         self.setWindowFlags(
@@ -275,6 +279,10 @@ to avoid clipping issues and enable proper text rendering.
                     self.dock_edge = settings.ui.widget_dock_edge
                     self.is_docked = True
                     self._update_docked_state()
+                
+                # Off-screen recovery: if saved position is no longer valid
+                # (e.g. monitor disconnected), snap to nearest valid position
+                self._recover_offscreen_position()
                 return
         except Exception as e:
             print(f"DEBUG: Failed to restore position: {e}")
@@ -284,6 +292,35 @@ to avoid clipping issues and enable proper text rendering.
         x = screen.width() - self.width() - 20
         y = screen.height() - self.height() - 40
         self.move(x, y)
+    
+    def _recover_offscreen_position(self):
+        """Recover widget position if it's off all available screens.
+
+        Checks whether the widget's top-left corner is visible on any
+        screen. If not, repositions to the bottom-right of the primary
+        screen. Logs the recovery for diagnostics.
+        """
+        pos = self.pos()
+        widget_point = QPoint(pos.x(), pos.y())
+        
+        # Check if the widget's position is on any available screen
+        screens = QApplication.screens()
+        on_screen = False
+        for screen in screens:
+            if screen.geometry().contains(widget_point):
+                on_screen = True
+                break
+        
+        if not on_screen:
+            primary = QApplication.primaryScreen().geometry()
+            new_x = primary.width() - self.width() - 20
+            new_y = primary.height() - self.height() - 40
+            logging.getLogger(__name__).info(
+                "Widget position (%d, %d) is off-screen. "
+                "Recovering to (%d, %d).",
+                pos.x(), pos.y(), new_x, new_y,
+            )
+            self.move(new_x, new_y)
     
     def _update_animations(self):
         """Update animation states."""
@@ -464,6 +501,10 @@ to avoid clipping issues and enable proper text rendering.
             self.is_processing = False
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(False)
+        
+        # Forward state to tray icon manager
+        if self._tray_manager is not None:
+            self._tray_manager.update_recording_state(state)
     
     def _get_panel_position(self):
         """Determine where to dock the panel based on widget position."""
@@ -616,8 +657,10 @@ to avoid clipping issues and enable proper text rendering.
         menu.exec(self.mapToGlobal(position))
     
     def _exit_application(self):
-        """Exit the application cleanly."""
+        """Exit the application cleanly (full quit, even with tray)."""
         self._save_position()
+        if self._tray_manager is not None:
+            self._tray_manager.hide()
         QApplication.quit()
     
     def _save_position(self):
@@ -632,10 +675,25 @@ to avoid clipping issues and enable proper text rendering.
             print(f"DEBUG: Failed to save position: {e}")
     
     def closeEvent(self, event):
-        """Handle close event for clean ALT+F4 exit."""
+        """Handle close event — close-to-tray if tray is active, else quit.
+
+        When a TrayIconManager is wired in, closing the window hides it to
+        the system tray instead of quitting the app. This lets users keep
+        recording in the background. Without a tray manager, the app quits
+        normally (ALT+F4, etc.).
+        """
         self._save_position()
-        event.accept()
-        QApplication.quit()
+        
+        if self._tray_manager is not None:
+            # Close-to-tray: hide the widget instead of quitting
+            logging.getLogger(__name__).info(
+                "closeEvent: hiding widget to system tray"
+            )
+            self.hide()
+            event.ignore()
+        else:
+            event.accept()
+            QApplication.quit()
 
 
 class RecordButtonItem(QGraphicsEllipseItem):
