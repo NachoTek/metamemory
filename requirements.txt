@@ -16,7 +16,7 @@ pywhispercpp>=1.3.0    # Python bindings for whisper.cpp (GGML-based, no PyTorch
 # Note: faster-whisper removed due to WinError 1114 (PyTorch DLL init failure)
 
 # Speaker Diarization
-# pyannote.audio will be added for voice signatures
+sherpa-onnx>=1.10.0    # ONNX-based speaker diarization + embedding (Windows compatible)
 
 # System utilities
 psutil>=5.9.0
