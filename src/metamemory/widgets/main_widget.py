@@ -179,6 +179,8 @@ to avoid clipping issues and enable proper text rendering.
         self._floating_transcript_panel.hide_panel()
         # Connect segment signal (thread-safe, automatically queues to main thread)
         self._floating_transcript_panel.segment_ready.connect(self._on_panel_segment)
+        # Connect speaker name pin signal
+        self._floating_transcript_panel.speaker_name_pinned.connect(self._on_speaker_name_pinned)
         print("DEBUG: Created floating transcript panel")
         
         # Floating settings panel
@@ -532,6 +534,31 @@ to avoid clipping issues and enable proper text rendering.
         if self._floating_transcript_panel:
             self._floating_transcript_panel.status_label.setText(f"Post-processed transcript saved!")
             QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
+
+    def _on_speaker_name_pinned(self, raw_label: str, name: str):
+        """Handle user pinning a speaker name in the transcript panel.
+
+        Saves the voice signature for the named speaker and refreshes
+        all speaker labels in the transcript display.
+
+        Args:
+            raw_label: Raw speaker label from diarization (e.g. "spk0")
+            name: User-chosen display name for this speaker
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("Speaker name pinned: %s -> '%s'", raw_label, name)
+
+        # Save the signature via controller
+        self._controller.pin_speaker_name(raw_label, name)
+
+        # Refresh the transcript panel with updated speaker names
+        if self._floating_transcript_panel:
+            # Get the updated speaker names from the controller
+            speaker_names = self._controller.get_speaker_names()
+            if speaker_names:
+                self._floating_transcript_panel.set_speaker_names(speaker_names)
 
     def toggle_transcript_panel(self):
         """Toggle floating transcript panel visibility."""

@@ -478,3 +478,168 @@ class TestApplySpeakerLabels:
         with mock.patch("metamemory.speaker.diarizer.Diarizer") as mock_diarizer_cls:
             ctrl._run_diarization(Path("test.wav"))
             mock_diarizer_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# T05: Speaker labels UX tests
+# ---------------------------------------------------------------------------
+
+class TestSpeakerLabelsPanel:
+    """Tests for speaker label display and pin-to-name in the transcript panel."""
+
+    def test_speaker_color_deterministic(self):
+        """Speaker color function returns consistent colors."""
+        from metamemory.widgets.floating_panels import speaker_color
+        assert speaker_color("SPK_0") == "#4FC3F7"
+        assert speaker_color("SPK_1") == "#FF8A65"
+        # Unknown speaker gets default
+        assert speaker_color("UNKNOWN") == "#90A4AE"
+
+    def test_set_speaker_names(self):
+        """set_speaker_names stores the mapping (no Qt widget needed)."""
+        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
+        panel._speaker_names = {}
+        panel._pinned_speakers = set()
+        panel.phrases = []  # No phrases, rebuild is a no-op
+        panel.text_edit = None  # Will be skipped in rebuild
+        panel.set_speaker_names({"spk0": "Alice", "spk1": "Bob"})
+        assert panel.get_speaker_names() == {"spk0": "Alice", "spk1": "Bob"}
+
+    def test_display_speaker_for_direct_hit(self):
+        """_display_speaker_for returns mapped name for known raw label."""
+        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
+        panel._speaker_names = {"spk0": "Alice"}
+        panel._pinned_speakers = set()
+        assert panel._display_speaker_for("spk0") == "Alice"
+
+    def test_display_speaker_for_unknown(self):
+        """_display_speaker_for returns the label itself when no mapping."""
+        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
+        panel._speaker_names = {}
+        panel._pinned_speakers = set()
+        assert panel._display_speaker_for("SPK_1") == "SPK_1"
+
+    def test_pin_speaker_name_updates_mapping(self):
+        """pin_speaker_name adds to internal mapping."""
+        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
+        panel._speaker_names = {"spk0": "SPK_0"}
+        panel._pinned_speakers = set()
+        panel.phrases = []
+        panel.text_edit = None
+        panel.pin_speaker_name("spk0", "Alice")
+        assert panel._speaker_names["spk0"] == "Alice"
+        assert "spk0" in panel._pinned_speakers
+
+
+class TestControllerPinSpeaker:
+    """Tests for RecordingController.pin_speaker_name and get_speaker_names."""
+
+    def _make_controller_with_result(self, tmp_path):
+        """Create a controller with a simulated diarization result and transcript."""
+        from metamemory.recording.controller import RecordingController
+        from metamemory.transcription.transcript_store import TranscriptStore, Word
+        from metamemory.speaker.models import (
+            DiarizationResult, SpeakerSegment, VoiceSignature, SpeakerMatch,
+        )
+        from unittest import mock
+
+        ctrl = RecordingController(enable_transcription=False)
+        ctrl._transcript_store = TranscriptStore()
+        ctrl._transcript_store.start_recording()
+
+        # Properly mock config manager with real SpeakerSettings
+        from metamemory.config.models import SpeakerSettings
+        mock_settings = mock.MagicMock()
+        mock_settings.speaker = SpeakerSettings()
+        ctrl._config_manager.get_settings = mock.MagicMock(return_value=mock_settings)
+
+        # Create a fake transcript path so the controller can find the DB
+        wav_path = tmp_path / "test.wav"
+        wav_path.write_text("fake")
+        transcript_path = tmp_path / "test.md"
+        transcript_path.write_text("# Transcript\n")
+        ctrl._last_transcript_path = transcript_path
+
+        # Add words
+        words = [
+            Word(text="hello", start_time=0.0, end_time=0.5, confidence=90),
+            Word(text="world", start_time=0.5, end_time=1.0, confidence=85),
+            Word(text="hey", start_time=3.0, end_time=3.5, confidence=88),
+            Word(text="there", start_time=3.5, end_time=4.0, confidence=92),
+        ]
+        ctrl._transcript_store.add_words(words)
+
+        # Create a diarization result with embeddings
+        embedding_spk0 = np.ones(256, dtype=np.float32)
+        embedding_spk0 /= np.linalg.norm(embedding_spk0)
+        embedding_spk1 = np.zeros(256, dtype=np.float32)
+        embedding_spk1[0] = 1.0
+
+        result = DiarizationResult(
+            segments=[
+                SpeakerSegment(start=0.0, end=2.0, speaker="spk0"),
+                SpeakerSegment(start=2.5, end=5.0, speaker="spk1"),
+            ],
+            signatures={
+                "spk0": VoiceSignature(embedding=embedding_spk0, speaker_label="spk0", num_segments=2),
+                "spk1": VoiceSignature(embedding=embedding_spk1, speaker_label="spk1", num_segments=2),
+            },
+            matches={},
+            num_speakers=2,
+        )
+
+        ctrl._last_diarization_result = result
+        ctrl._apply_speaker_labels(result)
+        return ctrl
+
+    def test_get_speaker_names_no_result(self):
+        """get_speaker_names returns empty dict when no diarization result."""
+        from metamemory.recording.controller import RecordingController
+        ctrl = RecordingController(enable_transcription=False)
+        assert ctrl.get_speaker_names() == {}
+
+    def test_get_speaker_names_with_result(self, tmp_path):
+        """get_speaker_names returns mapping after diarization."""
+        ctrl = self._make_controller_with_result(tmp_path)
+        names = ctrl.get_speaker_names()
+        assert "spk0" in names
+        assert names["spk0"] == "SPK_0"
+        assert names["spk1"] == "SPK_1"
+
+    def test_pin_speaker_saves_signature(self, tmp_path):
+        """pin_speaker_name saves to VoiceSignatureStore and re-tags words."""
+        ctrl = self._make_controller_with_result(tmp_path)
+        ctrl.pin_speaker_name("spk0", "Alice")
+
+        # Words should now be tagged with "Alice"
+        words = ctrl._transcript_store.get_all_words()
+        assert words[0].speaker_id == "Alice"
+        assert words[1].speaker_id == "Alice"
+
+        # Check the signature store has Alice
+        db_path = tmp_path / "speaker_signatures.db"
+        assert db_path.exists()
+
+        from metamemory.speaker.signatures import VoiceSignatureStore
+        with VoiceSignatureStore(str(db_path)) as store:
+            profiles = store.load_signatures()
+            names = [p.name for p in profiles]
+            assert "Alice" in names
+
+    def test_pin_speaker_no_result_no_crash(self, tmp_path):
+        """pin_speaker_name gracefully handles missing diarization result."""
+        from metamemory.recording.controller import RecordingController
+        ctrl = RecordingController(enable_transcription=False)
+        # Should not crash
+        ctrl.pin_speaker_name("spk0", "Alice")
+
+    def test_pin_speaker_updates_speaker_names(self, tmp_path):
+        """After pinning, get_speaker_names returns the updated mapping."""
+        ctrl = self._make_controller_with_result(tmp_path)
+        ctrl.pin_speaker_name("spk0", "Alice")
+        names = ctrl.get_speaker_names()
+        assert names["spk0"] == "Alice"

@@ -5,14 +5,38 @@ This solves the clipping issue by making the panel a separate QWidget
 that floats outside the main widget bounds.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel, QFrame, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QTextEdit, QLabel, QFrame, QHBoxLayout, QPushButton,
+    QInputDialog, QApplication,
+)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from typing import List, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Optional
+from dataclasses import dataclass, field
 
 from metamemory.hardware.detector import HardwareDetector
 from metamemory.hardware.recommender import ModelRecommender
+
+
+# ---------------------------------------------------------------------------
+# Speaker color palette — deterministic colors for up to 8 speakers
+# ---------------------------------------------------------------------------
+SPEAKER_COLORS: Dict[str, str] = {
+    "SPK_0": "#4FC3F7",  # Light blue
+    "SPK_1": "#FF8A65",  # Orange
+    "SPK_2": "#AED581",  # Light green
+    "SPK_3": "#CE93D8",  # Purple
+    "SPK_4": "#FFD54F",  # Amber
+    "SPK_5": "#F48FB1",  # Pink
+    "SPK_6": "#4DD0E1",  # Cyan
+    "SPK_7": "#FFB74D",  # Deep orange
+}
+_DEFAULT_SPEAKER_COLOR = "#90A4AE"  # Blue grey fallback
+
+
+def speaker_color(label: str) -> str:
+    """Return a deterministic color hex string for a speaker label."""
+    return SPEAKER_COLORS.get(label, _DEFAULT_SPEAKER_COLOR)
 
 
 @dataclass
@@ -21,6 +45,7 @@ class Phrase:
     segments: List[str]  # Text of each segment
     confidences: List[int]  # Confidence of each segment
     is_final: bool  # True if phrase is complete
+    speaker_id: Optional[str] = None  # Speaker label for this phrase
 
 
 class FloatingTranscriptPanel(QWidget):
@@ -38,9 +63,16 @@ class FloatingTranscriptPanel(QWidget):
     # Signals
     closed = pyqtSignal()  # Emitted when user closes panel
     segment_ready = pyqtSignal(str, int, int, bool, bool)  # text, confidence, segment_index, is_final, phrase_start
-    
+    speaker_name_pinned = pyqtSignal(str, str)  # raw_speaker_label, user_chosen_name
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        
+        # Speaker label display mapping: raw_label -> display_name
+        # e.g. {"spk0": "Alice", "spk1": "SPK_1"}
+        self._speaker_names: Dict[str, str] = {}
+        # Raw speaker labels that have been pinned by the user
+        self._pinned_speakers: set = set()
         
         # Window settings
         self.setWindowFlags(
@@ -123,6 +155,9 @@ class FloatingTranscriptPanel(QWidget):
             }
         """)
         self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
+        # Handle anchor clicks on speaker labels
+        self.text_edit.setMouseTracking(True)
+        self.text_edit.anchorClicked.connect(self._on_anchor_clicked)
         layout.addWidget(self.text_edit)
 
         # Status label
@@ -213,7 +248,7 @@ class FloatingTranscriptPanel(QWidget):
         self.phrases.clear()
         self.current_phrase_idx = -1
 
-    def update_segment(self, text: str, confidence: int, segment_index: int, is_final: bool = False, phrase_start: bool = False) -> None:
+    def update_segment(self, text: str, confidence: int, segment_index: int, is_final: bool = False, phrase_start: bool = False, speaker_id: Optional[str] = None) -> None:
         """
         Update a single segment. Each segment is part of a phrase (line).
 
@@ -223,7 +258,7 @@ class FloatingTranscriptPanel(QWidget):
             segment_index: Position of this segment in current phrase
             is_final: If True, this phrase is complete
             phrase_start: If True, start a new phrase (new line)
-            enhanced: If True, this segment was enhanced by background processor
+            speaker_id: Optional speaker label for this phrase
         """
         if text.strip() == "[BLANK_AUDIO]":
             print(f"DEBUG Panel: Skipping [BLANK_AUDIO]")
@@ -237,8 +272,13 @@ class FloatingTranscriptPanel(QWidget):
             if self.current_phrase_idx >= 0:
                 cursor.insertBlock()  # New paragraph after previous phrase
             
-            self.phrases.append(Phrase(segments=[], confidences=[], is_final=False))
+            self.phrases.append(Phrase(segments=[], confidences=[], is_final=False, speaker_id=speaker_id))
             self.current_phrase_idx = len(self.phrases) - 1
+            
+            # Insert speaker label if provided
+            if speaker_id:
+                display_name = self._display_speaker_for(speaker_id)
+                self._insert_speaker_label(display_name)
         
         # Get current phrase
         phrase = self.phrases[self.current_phrase_idx]
@@ -269,13 +309,138 @@ class FloatingTranscriptPanel(QWidget):
         # Auto-scroll
         self._scroll_to_bottom()
     
-    def _append_segment_to_display(self, text: str, confidence: int) -> None:
+    # ------------------------------------------------------------------
+    # Speaker label management
+    # ------------------------------------------------------------------
+
+    def set_speaker_names(self, names: Dict[str, str]) -> None:
+        """Set the speaker label display mapping and rebuild the transcript.
+
+        Args:
+            names: Mapping from raw speaker labels (e.g. "spk0") to display
+                   names (e.g. "Alice" or "SPK_0").
+        """
+        self._speaker_names = dict(names)
+        self._rebuild_display()
+
+    def get_speaker_names(self) -> Dict[str, str]:
+        """Return the current speaker label mapping."""
+        return dict(self._speaker_names)
+
+    def pin_speaker_name(self, raw_label: str, name: str) -> None:
+        """Pin a user-chosen name to a speaker label and refresh display.
+
+        Args:
+            raw_label: Raw speaker label (e.g. "spk0").
+            name: User-chosen display name.
+        """
+        self._speaker_names[raw_label] = name
+        self._pinned_speakers.add(raw_label)
+        self._rebuild_display()
+
+    # ------------------------------------------------------------------
+    # Speaker label helpers
+    # ------------------------------------------------------------------
+
+    def _display_speaker_for(self, raw_or_display_label: str) -> str:
+        """Resolve a label to its display form.
+
+        The transcript store may contain display labels like "Alice" or
+        "SPK_0" that were set by _apply_speaker_labels. We need to find
+        the original raw label to check for user pins.
+        """
+        # Direct hit in speaker names
+        if raw_or_display_label in self._speaker_names:
+            return self._speaker_names[raw_or_display_label]
+        # Search by value — the store has display labels, we need to
+        # check if any raw label maps to this display label
+        for raw, display in self._speaker_names.items():
+            if display == raw_or_display_label:
+                return display
+        return raw_or_display_label
+
+    def _raw_label_for_display(self, display_label: str) -> Optional[str]:
+        """Find the raw label that maps to a display label.
+
+        Returns None if no mapping found (label may be a raw label itself).
+        """
+        for raw, display in self._speaker_names.items():
+            if display == display_label:
+                return raw
+        # The display label might itself be a raw label
+        if display_label in self._speaker_names:
+            return display_label
+        return None
+
+    def _prompt_speaker_name(self, current_label: str) -> None:
+        """Show an input dialog for the user to name a speaker.
+
+        If the user provides a name, emits speaker_name_pinned signal.
+        """
+        parent = self.parent() if self.parent() else self
+        name, ok = QInputDialog.getText(
+            parent,
+            "Name Speaker",
+            f"Enter a name for {current_label}:",
+            text=current_label if not current_label.startswith("SPK_") else "",
+        )
+        if ok and name.strip():
+            raw_label = self._raw_label_for_display(current_label)
+            if raw_label is None:
+                raw_label = current_label
+            self.speaker_name_pinned.emit(raw_label, name.strip())
+
+    def _on_anchor_clicked(self, url) -> None:
+        """Handle clicks on speaker label anchors in the transcript."""
+        link = url.toString() if hasattr(url, 'toString') else str(url)
+        if link.startswith("speaker://"):
+            speaker_id = link[len("speaker://"):]
+            self._prompt_speaker_name(speaker_id)
+
+    # ------------------------------------------------------------------
+    # Display rendering
+    # ------------------------------------------------------------------
+
+    def _rebuild_display(self) -> None:
+        """Rebuild the entire text display from stored phrases."""
+        if self.text_edit is None:
+            return
+        self.text_edit.clear()
+        for i, phrase in enumerate(self.phrases):
+            if i > 0:
+                cursor = self.text_edit.textCursor()
+                cursor.insertBlock()
+
+            # Write speaker label if known
+            if phrase.speaker_id:
+                display_name = self._display_speaker_for(phrase.speaker_id)
+                self._insert_speaker_label(display_name)
+
+            # Write phrase text with confidence coloring
+            for seg_idx, (seg_text, seg_conf) in enumerate(zip(phrase.segments, phrase.confidences)):
+                self._append_segment_to_display(seg_text, seg_conf, add_space=(seg_idx > 0))
+
+    def _insert_speaker_label(self, speaker_id: str) -> None:
+        """Insert a clickable speaker label at the current cursor position."""
+        cursor = self.text_edit.textCursor()
+        color = speaker_color(speaker_id)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        fmt.setFontWeight(QFont.Weight.Bold)
+        fmt.setAnchor(True)
+        fmt.setAnchorHref(f"speaker://{speaker_id}")
+        label_text = f"[{speaker_id}] "
+        cursor.insertText(label_text, fmt)
+
+    def _append_segment_to_display(self, text: str, confidence: int, add_space: bool = False) -> None:
         """Append a segment to the current line with proper formatting."""
         cursor = self.text_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
         # Add space between segments
-        if self.phrases[self.current_phrase_idx].segments and len(self.phrases[self.current_phrase_idx].segments) > 0:
+        if add_space or (self.phrases and self.current_phrase_idx >= 0
+                         and self.phrases[self.current_phrase_idx].segments
+                         and len(self.phrases[self.current_phrase_idx].segments) > 0):
             cursor.insertText(" ")
 
         # Determine color based on confidence

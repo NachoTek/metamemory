@@ -109,6 +109,9 @@ class RecordingController:
         # Audio feed tracking
         self._audio_chunks_fed = 0
         
+        # Speaker diarization result (kept for pin-to-name UX)
+        self._last_diarization_result: Optional[object] = None  # DiarizationResult
+        
     
     def _set_state(self, state: ControllerState) -> None:
         """Update state and notify listeners."""
@@ -557,6 +560,9 @@ class RecordingController:
             # (3) Tag transcript words with speaker labels
             self._apply_speaker_labels(result)
 
+            # Store result for pin-to-name UX
+            self._last_diarization_result = result
+
         except Exception as exc:
             logger.error(
                 "Speaker diarization error for %s: %s",
@@ -651,3 +657,92 @@ class RecordingController:
     def get_transcript_store(self) -> Optional[TranscriptStore]:
         """Get the current transcript store (for UI access during recording)."""
         return self._transcript_store
+    
+    def pin_speaker_name(self, raw_label: str, name: str) -> None:
+        """Pin a user-chosen name to a speaker and save the voice signature.
+
+        After pinning, re-checks all unmatched speakers against the updated
+        signature store, then updates transcript word labels.
+
+        Args:
+            raw_label: Raw speaker label from diarization (e.g. "spk0").
+            name: User-chosen display name for this speaker.
+        """
+        if not self._last_diarization_result or not self._last_transcript_path:
+            logger.warning(
+                "Cannot pin speaker '%s': no diarization result available",
+                raw_label,
+            )
+            return
+
+        result = self._last_diarization_result
+        if not result.succeeded or raw_label not in result.signatures:
+            logger.warning(
+                "Cannot pin speaker '%s': no signature found in diarization result",
+                raw_label,
+            )
+            return
+
+        sig = result.signatures[raw_label]
+
+        # Save or update the voice signature in the store
+        db_path = self._last_transcript_path.parent / "speaker_signatures.db"
+        try:
+            from metamemory.speaker.signatures import VoiceSignatureStore
+            with VoiceSignatureStore(db_path=db_path) as store:
+                existing = store.find_match(sig.embedding, threshold=0.99)
+                if existing and existing.name == name:
+                    # Already saved — update the embedding average
+                    store.update_signature(name, sig.embedding)
+                else:
+                    store.save_signature(name, sig.embedding, sig.num_segments)
+
+                logger.info("Saved voice signature for '%s' (was %s)", name, raw_label)
+
+                # Update the in-memory result mapping
+                from metamemory.speaker.models import SpeakerMatch
+                result.matches[raw_label] = SpeakerMatch(
+                    name=name, score=1.0, confidence="high",
+                )
+
+                # Re-check all unmatched speakers against updated store
+                for label, label_sig in result.signatures.items():
+                    if label in result.matches:
+                        continue  # Already matched (including the just-pinned one)
+                    match = store.find_match(
+                        label_sig.embedding,
+                        threshold=self._config_manager.get_settings().speaker.confidence_threshold,
+                    )
+                    if match:
+                        result.matches[label] = match
+                        logger.info(
+                            "Re-checked %s -> '%s' (score=%.4f)",
+                            label, match.name, match.score,
+                        )
+
+            # Re-apply speaker labels to transcript words
+            if self._transcript_store:
+                self._apply_speaker_labels(result)
+
+        except Exception as exc:
+            logger.error("Failed to pin speaker '%s': %s", name, exc, exc_info=True)
+
+    def get_speaker_names(self) -> dict:
+        """Return current speaker label mapping from the last diarization.
+
+        Returns:
+            Dict mapping raw labels (e.g. "spk0") to display names
+            (e.g. "Alice" or "SPK_0").
+        """
+        if not self._last_diarization_result:
+            return {}
+        result = self._last_diarization_result
+        names = {}
+        seen_labels = set()
+        # From segments, collect all unique raw labels
+        if hasattr(result, 'segments'):
+            for seg in result.segments:
+                if seg.speaker not in seen_labels:
+                    seen_labels.add(seg.speaker)
+                    names[seg.speaker] = result.speaker_label_for(seg.speaker)
+        return names
