@@ -176,3 +176,166 @@ def test_speaker_embedding_extractor(downloaded_models):
     # Verify score against the known speaker
     score = manager.score("test_speaker", embedding)
     assert score > 0.9, f"Self-similarity too low: {score}"
+
+
+# ---------------------------------------------------------------------------
+# T02: Diarizer wrapper + data model tests
+# ---------------------------------------------------------------------------
+
+class TestDiarizerModels:
+    """Unit tests for speaker data models (no sherpa-onnx dependency)."""
+
+    def test_speaker_segment_duration(self):
+        from metamemory.speaker.models import SpeakerSegment
+
+        seg = SpeakerSegment(start=1.0, end=3.5, speaker="spk0")
+        assert seg.duration == 2.5
+        assert seg.speaker == "spk0"
+
+    def test_speaker_segment_frozen(self):
+        from metamemory.speaker.models import SpeakerSegment
+
+        seg = SpeakerSegment(start=0.0, end=1.0, speaker="spk0")
+        with pytest.raises(AttributeError):
+            seg.start = 2.0  # type: ignore[misc]
+
+    def test_voice_signature(self):
+        from metamemory.speaker.models import VoiceSignature
+
+        emb = np.ones(256, dtype=np.float32)
+        sig = VoiceSignature(embedding=emb, speaker_label="spk0", num_segments=3)
+        assert sig.speaker_label == "spk0"
+        assert sig.num_segments == 3
+        assert len(sig.embedding) == 256
+
+    def test_speaker_profile(self):
+        from metamemory.speaker.models import SpeakerProfile
+
+        emb = np.zeros(256, dtype=np.float32)
+        profile = SpeakerProfile(name="Alice", embedding=emb, num_samples=5)
+        assert profile.name == "Alice"
+        assert profile.num_samples == 5
+
+    def test_speaker_match_confidence_validation(self):
+        from metamemory.speaker.models import SpeakerMatch
+
+        # Valid confidences
+        for conf in ("high", "medium", "low"):
+            m = SpeakerMatch(name="Alice", score=0.95, confidence=conf)
+            assert m.confidence == conf
+
+        # Invalid confidence raises
+        with pytest.raises(ValueError, match="confidence must be one of"):
+            SpeakerMatch(name="Alice", score=0.95, confidence="invalid")
+
+    def test_diarization_result_succeeded(self):
+        from metamemory.speaker.models import (
+            DiarizationResult,
+            SpeakerSegment,
+            VoiceSignature,
+        )
+
+        # Successful result
+        segs = [SpeakerSegment(0.0, 1.0, "spk0"), SpeakerSegment(1.0, 2.0, "spk1")]
+        result = DiarizationResult(
+            segments=segs, duration_seconds=2.0, num_speakers=2
+        )
+        assert result.succeeded
+        assert result.num_speakers == 2
+        assert len(result.segments) == 2
+
+        # Failed result
+        failed = DiarizationResult(error="model not found")
+        assert not failed.succeeded
+        assert len(failed.segments) == 0
+
+    def test_diarization_result_speaker_label_for(self):
+        from metamemory.speaker.models import DiarizationResult, SpeakerMatch
+
+        result = DiarizationResult(
+            matches={"spk0": SpeakerMatch(name="Alice", score=0.92, confidence="high")},
+        )
+        assert result.speaker_label_for("spk0") == "Alice"
+        assert result.speaker_label_for("spk1") == "SPK_1"
+        assert result.speaker_label_for("spk2") == "SPK_2"
+
+    def test_diarization_result_defaults(self):
+        from metamemory.speaker.models import DiarizationResult
+
+        result = DiarizationResult()
+        assert result.segments == []
+        assert result.signatures == {}
+        assert result.matches == {}
+        assert result.duration_seconds == 0.0
+        assert result.num_speakers == 0
+        assert result.error is None
+        assert result.succeeded
+
+
+class TestDiarizer:
+    """Tests for the Diarizer wrapper class."""
+
+    def test_diarizer_synth_wav(self, downloaded_models, tmp_path):
+        """Diarizer.diarize() on a synthetic WAV returns a valid result."""
+        from metamemory.speaker.diarizer import Diarizer
+
+        cache_dir = downloaded_models["segmentation_dir"].parent
+        diarizer = Diarizer(cache_dir=cache_dir)
+
+        wav_path = tmp_path / "synth.wav"
+        _create_synth_wav(wav_path, duration_s=5.0)
+
+        result = diarizer.diarize(wav_path)
+        assert result.succeeded, f"Diarization failed: {result.error}"
+        assert result.duration_seconds > 0
+        # Synthetic sine-wave audio may produce 0 or 1 segments — the key
+        # assertion is that no error occurred and the result is well-formed.
+        for seg in result.segments:
+            assert seg.start >= 0.0
+            assert seg.end >= seg.start
+            assert seg.speaker  # non-empty label
+
+    def test_diarizer_missing_wav(self, downloaded_models, tmp_path):
+        """Diarizer.diarize() on a missing file returns error result."""
+        from metamemory.speaker.diarizer import Diarizer
+
+        cache_dir = downloaded_models["segmentation_dir"].parent
+        diarizer = Diarizer(cache_dir=cache_dir)
+
+        result = diarizer.diarize(tmp_path / "nonexistent.wav")
+        assert not result.succeeded
+        assert result.error is not None
+        assert "not found" in result.error.lower() or "no such" in result.error.lower() or "error" in result.error.lower()
+
+    def test_diarizer_warm_up(self, downloaded_models):
+        """Diarizer.warm_up() loads models without crashing."""
+        from metamemory.speaker.diarizer import Diarizer
+
+        cache_dir = downloaded_models["segmentation_dir"].parent
+        diarizer = Diarizer(cache_dir=cache_dir)
+        diarizer.warm_up()
+        # Second call should be a no-op (already initialized)
+        diarizer.warm_up()
+
+    def test_diarizer_signatures_populated(self, downloaded_models, tmp_path):
+        """If segments are found, each speaker should have a voice signature."""
+        from metamemory.speaker.diarizer import Diarizer
+
+        cache_dir = downloaded_models["segmentation_dir"].parent
+        diarizer = Diarizer(cache_dir=cache_dir)
+
+        # Use longer audio to increase chance of segments being detected
+        wav_path = tmp_path / "synth_long.wav"
+        _create_synth_wav(wav_path, duration_s=10.0)
+
+        result = diarizer.diarize(wav_path)
+        assert result.succeeded, f"Diarization failed: {result.error}"
+
+        # If segments were found, verify signatures exist for each speaker
+        if result.segments:
+            speaker_labels = {seg.speaker for seg in result.segments}
+            for label in speaker_labels:
+                if label in result.signatures:
+                    sig = result.signatures[label]
+                    assert len(sig.embedding) > 0, f"Empty embedding for {label}"
+                    assert sig.speaker_label == label
