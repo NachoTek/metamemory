@@ -187,8 +187,12 @@ to avoid clipping issues and enable proper text rendering.
         self._floating_transcript_panel.speaker_name_pinned.connect(self._on_speaker_name_pinned)
         print("DEBUG: Created floating transcript panel")
         
-        # Floating settings panel
-        self._floating_settings_panel = FloatingSettingsPanel(self)
+        # Floating settings panel — pass controller and tray_manager for Performance tab wiring
+        self._floating_settings_panel = FloatingSettingsPanel(
+            self,
+            controller=self._controller,
+            tray_manager=self._tray_manager,
+        )
         self._floating_settings_panel.hide_panel()
 
         # Connect model_changed signal to save config
@@ -578,6 +582,11 @@ to avoid clipping issues and enable proper text rendering.
         if self._floating_transcript_panel:
             self._floating_transcript_panel.status_label.setText(f"Post-processed transcript saved!")
             QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
+
+        # Update Performance tab WER display
+        if self._floating_settings_panel:
+            wer = self._controller.get_last_wer()
+            self._floating_settings_panel.update_wer_display(wer)
 
     def _on_speaker_name_pinned(self, raw_label: str, name: str):
         """Handle user pinning a speaker name in the transcript panel.

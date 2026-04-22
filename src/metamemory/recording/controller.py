@@ -112,6 +112,9 @@ class RecordingController:
         # Speaker diarization result (kept for pin-to-name UX)
         self._last_diarization_result: Optional[object] = None  # DiarizationResult
         
+        # Auto-WER from last post-processing (None until computed)
+        self._last_wer: Optional[float] = None
+        
     
     def _set_state(self, state: ControllerState) -> None:
         """Update state and notify listeners."""
@@ -466,6 +469,9 @@ class RecordingController:
         print(f"DEBUG: Real-time words: {result.get('realtime_word_count')}")
         print(f"DEBUG: Post-processed words: {result.get('word_count')}")
         
+        # --- Auto-WER calculation ---
+        self._compute_and_store_wer(result)
+
         if self.on_post_process_complete:
             transcript_path_str = result.get('transcript_path')
             if transcript_path_str and isinstance(transcript_path_str, str):
@@ -474,6 +480,81 @@ class RecordingController:
                     self.on_post_process_complete(job_id, transcript_path)
                 except Exception as e:
                     print(f"ERROR: Post-process complete callback failed: {e}")
+
+    def _compute_and_store_wer(self, result: dict) -> None:
+        """Compute WER between realtime and post-processed transcripts and append to file.
+
+        Extracts realtime words from the in-memory TranscriptStore, reads the
+        post-processed words from the saved .md file's metadata JSON footer,
+        calculates WER via calculate_wer(), and appends a 'wer' field to the
+        file's metadata JSON footer.
+
+        Args:
+            result: Post-processing result dict with 'transcript_path' key.
+        """
+        try:
+            from metamemory.performance.wer import calculate_wer
+
+            # Gather realtime text from the in-memory store
+            realtime_text = ""
+            if self._transcript_store:
+                words = self._transcript_store.get_all_words()
+                realtime_text = " ".join(w.text for w in words)
+
+            # Read post-processed text from the saved .md file
+            transcript_path_str = result.get('transcript_path')
+            if not transcript_path_str:
+                return
+
+            transcript_path = Path(transcript_path_str)
+            if not transcript_path.exists():
+                logger.warning("Cannot compute WER: transcript file not found: %s", transcript_path)
+                return
+
+            content = transcript_path.read_text(encoding="utf-8")
+            footer_marker = "\n---\n\n<!-- METADATA: "
+            marker_idx = content.find(footer_marker)
+            if marker_idx == -1:
+                logger.warning("Cannot compute WER: no metadata footer in %s", transcript_path)
+                return
+
+            # Parse metadata JSON
+            import json
+            metadata_text = content[marker_idx + len(footer_marker):]
+            if metadata_text.strip().endswith(" -->"):
+                metadata_text = metadata_text.strip()[:-len(" -->")]
+            data = json.loads(metadata_text)
+
+            # Extract post-processed words
+            postproc_words = data.get("words", [])
+            postproc_text = " ".join(w.get("text", "") for w in postproc_words)
+
+            if not realtime_text.strip() and not postproc_text.strip():
+                logger.info("Both transcripts empty — skipping WER calculation")
+                return
+
+            wer_value = calculate_wer(realtime_text, postproc_text)
+            logger.info(
+                "Auto-WER for %s: %.3f (realtime: %d words, postproc: %d words)",
+                transcript_path.name, wer_value,
+                len(realtime_text.split()) if realtime_text else 0,
+                len(postproc_words),
+            )
+
+            # Append WER to the metadata and rewrite the file
+            data["wer"] = wer_value
+
+            # Rebuild the file: markdown body + updated metadata footer
+            md_body = content[:marker_idx]
+            updated_json = json.dumps(data, indent=2)
+            new_content = md_body + footer_marker + updated_json + " -->\n"
+            transcript_path.write_text(new_content, encoding="utf-8")
+
+            # Store WER value for UI access
+            self._last_wer = wer_value
+
+        except Exception as exc:
+            logger.error("Auto-WER computation failed: %s", exc, exc_info=True)
     
     def feed_audio_for_transcription(self, audio_chunk) -> None:
         """Feed audio chunk to transcription processor.
@@ -746,3 +827,11 @@ class RecordingController:
                     seen_labels.add(seg.speaker)
                     names[seg.speaker] = result.speaker_label_for(seg.speaker)
         return names
+
+    def get_last_wer(self) -> Optional[float]:
+        """Return the WER value from the last auto-WER computation.
+
+        Returns:
+            WER as float (0.0–1.0+) or None if not yet computed.
+        """
+        return self._last_wer

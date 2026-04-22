@@ -20,6 +20,9 @@ import re
 
 from metamemory.hardware.detector import HardwareDetector
 from metamemory.hardware.recommender import ModelRecommender
+from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
+from metamemory.performance.benchmark import BenchmarkRunner, BenchmarkResult
+from metamemory.performance.wer import calculate_wer
 
 import logging
 
@@ -1123,9 +1126,28 @@ class FloatingSettingsPanel(QWidget):
                  controller: object = None, tray_manager: object = None):
         super().__init__(parent)
         
-        # Store optional references (wired in T03)
+        # Store optional references
         self._controller = controller
         self._tray_manager = tray_manager
+
+        # -- Performance backend instances (wired in T03) --
+        self._resource_monitor = ResourceMonitor(
+            poll_interval_ms=2000,
+            on_snapshot=self._on_resource_snapshot,
+            on_warning=self._on_resource_warning,
+        )
+
+        # -- Metrics refresh timer (updates recording metrics every 2s) --
+        self._metrics_timer = QTimer(self)
+        self._metrics_timer.setInterval(2000)
+        self._metrics_timer.timeout.connect(self._refresh_recording_metrics)
+
+        # -- Benchmark state --
+        self._benchmark_runner: Optional[BenchmarkRunner] = None
+        self._benchmark_history: List[dict] = []  # last 5 results as dicts
+
+        # -- Track whether Performance tab is active --
+        self._perf_tab_active = False
 
         # Window settings
         self.setWindowFlags(
@@ -1432,16 +1454,28 @@ class FloatingSettingsPanel(QWidget):
         perf_layout.addStretch()
         self._tab_widget.addTab(perf_tab, "Performance")
 
+        # Connect tab change to manage ResourceMonitor lifecycle
+        self._tab_widget.currentChanged.connect(self._on_perf_tab_changed)
+
+        # Wire benchmark button
+        self._benchmark_btn.clicked.connect(self._on_benchmark_clicked)
+
         # Dragging
         self._dragging = False
         self._drag_pos = None
 
     def show_panel(self):
-        """Show the panel with a 150ms fade-in."""
+        """Show the panel with a 150ms fade-in and start monitoring if on Performance tab."""
         self._start_fade_in()
+        # Activate monitoring if Performance tab is visible
+        if self._perf_tab_active:
+            self._start_resource_monitor()
+            self._metrics_timer.start()
     
     def hide_panel(self):
-        """Hide the panel with a 150ms fade-out."""
+        """Hide the panel with a 150ms fade-out and stop monitoring."""
+        self._stop_resource_monitor()
+        self._metrics_timer.stop()
         self._start_fade_out()
 
     # ------------------------------------------------------------------
@@ -1519,6 +1553,251 @@ class FloatingSettingsPanel(QWidget):
         
         self.move(x, y)
     
+    # ------------------------------------------------------------------
+    # Performance tab wiring (T03)
+    # ------------------------------------------------------------------
+
+    def _on_perf_tab_changed(self, index: int) -> None:
+        """Handle tab changes — start/stop ResourceMonitor based on Performance tab visibility."""
+        # Performance tab is index 1
+        self._perf_tab_active = (index == 1)
+
+        if self._perf_tab_active and self.isVisible():
+            self._start_resource_monitor()
+            self._metrics_timer.start()
+            self._refresh_recording_metrics()
+        else:
+            self._stop_resource_monitor()
+            self._metrics_timer.stop()
+
+    def _start_resource_monitor(self) -> None:
+        """Start the ResourceMonitor if not already running."""
+        if not self._resource_monitor.is_running:
+            self._resource_monitor.start()
+            logger.info("ResourceMonitor started for Performance tab")
+
+    def _stop_resource_monitor(self) -> None:
+        """Stop the ResourceMonitor if running."""
+        if self._resource_monitor.is_running:
+            self._resource_monitor.stop()
+            logger.info("ResourceMonitor stopped")
+
+    def _on_resource_snapshot(self, snapshot: ResourceSnapshot) -> None:
+        """Update RAM/CPU bars from a resource snapshot.
+
+        Args:
+            snapshot: ResourceSnapshot with current metrics.
+        """
+        self._ram_bar.setValue(int(snapshot.ram_percent))
+        self._cpu_bar.setValue(int(snapshot.cpu_percent))
+
+        # Color-code RAM bar: green → yellow → red
+        if snapshot.ram_percent >= 90:
+            self._ram_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#F44336"))
+        elif snapshot.ram_percent >= 75:
+            self._ram_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#FF9800"))
+        else:
+            self._ram_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#4CAF50"))
+
+        # Color-code CPU bar: blue → yellow → red
+        if snapshot.cpu_percent >= 90:
+            self._cpu_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#F44336"))
+        elif snapshot.cpu_percent >= 75:
+            self._cpu_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#FF9800"))
+        else:
+            self._cpu_bar.setStyleSheet(self._BAR_CSS_TEMPLATE.format(color="#2196F3"))
+
+    def _on_resource_warning(self, resource_name: str, value: float, threshold: float) -> None:
+        """Show resource warning indicator and optionally send tray notification.
+
+        Args:
+            resource_name: 'ram' or 'cpu'.
+            value: Current usage percentage.
+            threshold: Warning threshold percentage.
+        """
+        self._resource_warning.setText(f"⚠ High {resource_name.upper()}: {value:.0f}% (threshold: {threshold:.0f}%)")
+        self._resource_warning.show()
+
+        # Auto-hide after 10 seconds if resource recovers
+        QTimer.singleShot(10000, self._check_hide_resource_warning)
+
+        # Send tray notification if available
+        if self._tray_manager is not None:
+            try:
+                tray = self._tray_manager.tray_icon
+                tray.showMessage(
+                    "Resource Warning",
+                    f"High {resource_name.upper()} usage: {value:.0f}% (threshold: {threshold:.0f}%)",
+                )
+            except Exception as exc:
+                logger.debug("Failed to send tray notification: %s", exc)
+
+    def _check_hide_resource_warning(self) -> None:
+        """Hide warning if resources are back to normal."""
+        snap = self._resource_monitor.current_snapshot
+        if snap is not None:
+            if (snap.ram_percent < self._resource_monitor.ram_warning_percent and
+                    snap.cpu_percent < self._resource_monitor.cpu_warning_percent):
+                self._resource_warning.hide()
+
+    def _refresh_recording_metrics(self) -> None:
+        """Update recording metrics labels from the controller's transcription processor.
+
+        Only updates when the controller is recording and has an active processor.
+        """
+        if self._controller is None:
+            return
+
+        try:
+            if not self._controller.is_recording():
+                self._metric_model.setText("Model: Not recording")
+                self._metric_buffer.setText("Buffer: Not recording")
+                self._metric_count.setText("Transcriptions: Not recording")
+                self._metric_throughput.setText("Throughput: Not recording")
+                return
+
+            processor = getattr(self._controller, '_transcription_processor', None)
+            if processor is None:
+                return
+
+            stats = processor.get_stats()
+
+            # Model info
+            model_size = stats.get('model_size', 'unknown')
+            self._metric_model.setText(f"Model: {model_size}")
+
+            # Buffer duration
+            buffer_dur = stats.get('buffer_duration', 0)
+            self._metric_buffer.setText(f"Buffer: {buffer_dur:.1f}s")
+
+            # Transcription count
+            count = stats.get('transcription_count', 0)
+            self._metric_count.setText(f"Transcriptions: {count}")
+
+            # Throughput (buffer duration / total audio processed)
+            total_samples = stats.get('total_samples', 0)
+            if total_samples > 0:
+                audio_seconds = total_samples / 16000
+                self._metric_throughput.setText(f"Throughput: {audio_seconds:.1f}s audio")
+            else:
+                self._metric_throughput.setText("Throughput: —")
+
+        except Exception as exc:
+            logger.debug("Error refreshing recording metrics: %s", exc)
+
+    def update_wer_display(self, wer_value: Optional[float]) -> None:
+        """Update the WER display label.
+
+        Args:
+            wer_value: WER as a float (0.0–1.0+), or None to reset.
+        """
+        if wer_value is None:
+            self._wer_label.setText("Last recording WER: —")
+        else:
+            pct = wer_value * 100
+            if wer_value <= 0.1:
+                color = "#4CAF50"  # green — excellent
+            elif wer_value <= 0.3:
+                color = "#FFC107"  # yellow — acceptable
+            else:
+                color = "#F44336"  # red — poor
+            self._wer_label.setText(f"Last recording WER: {pct:.1f}%")
+            self._wer_label.setStyleSheet(
+                f"QLabel {{ color: {color}; font-size: 12px; font-weight: bold; padding: 2px; }}"
+            )
+
+    def _on_benchmark_clicked(self) -> None:
+        """Handle 'Run Benchmark' button click.
+
+        Creates a BenchmarkRunner with the controller's transcription engine
+        (if available) and runs it asynchronously.
+        """
+        if self._benchmark_runner and self._benchmark_runner.is_running:
+            logger.info("Benchmark already running, ignoring click")
+            return
+
+        # Disable button and show progress
+        self._benchmark_btn.setEnabled(False)
+        self._benchmark_btn.setText("Running...")
+
+        # Get the transcription engine from the controller
+        engine = None
+        if self._controller is not None:
+            engine = getattr(self._controller, '_transcription_processor', None)
+            # AccumulatingTranscriptionProcessor wraps a WhisperEngine internally
+            if engine is not None:
+                engine = getattr(engine, '_engine', None)
+
+        self._benchmark_runner = BenchmarkRunner(
+            engine=engine,
+            on_progress=self._on_benchmark_progress,
+            on_complete=self._on_benchmark_complete,
+        )
+        self._benchmark_runner.run_async()
+
+    def _on_benchmark_progress(self, percent: int) -> None:
+        """Update benchmark button text with progress.
+
+        Args:
+            percent: Progress percentage (0-100).
+        """
+        self._benchmark_btn.setText(f"Running... {percent}%")
+
+    def _on_benchmark_complete(self, result: BenchmarkResult) -> None:
+        """Handle benchmark completion — update UI with results.
+
+        Args:
+            result: BenchmarkResult with WER, latency, and throughput data.
+        """
+        # Re-enable button
+        self._benchmark_btn.setEnabled(True)
+        self._benchmark_btn.setText("Run Benchmark")
+
+        if result.error:
+            self._benchmark_history_label.setText(f"Benchmark failed: {result.error}")
+            self._benchmark_history_label.setStyleSheet(
+                "QLabel { color: #F44336; font-size: 11px; padding: 2px; }"
+            )
+            return
+
+        # Format result
+        wer_pct = result.wer * 100
+        result_text = (
+            f"WER: {wer_pct:.1f}% | "
+            f"Latency: {result.total_latency_s:.2f}s | "
+            f"Speed: {result.throughput_ratio:.1f}x realtime"
+        )
+
+        # Store in history (keep last 5)
+        self._benchmark_history.append({
+            "wer": result.wer,
+            "latency_s": result.total_latency_s,
+            "throughput": result.throughput_ratio,
+            "model_info": result.model_info,
+        })
+        if len(self._benchmark_history) > 5:
+            self._benchmark_history = self._benchmark_history[-5:]
+
+        # Build history display
+        lines = []
+        for i, entry in enumerate(reversed(self._benchmark_history), 1):
+            w = entry["wer"] * 100
+            t = entry["throughput"]
+            lines.append(f"#{i}: WER {w:.1f}% | {t:.1f}x")
+
+        self._benchmark_history_label.setText("\n".join(lines))
+        self._benchmark_history_label.setStyleSheet(
+            "QLabel { color: #aaa; font-size: 11px; padding: 2px; }"
+        )
+
+        # Also update the WER display with benchmark result
+        self.update_wer_display(result.wer)
+
+        logger.info(
+            "Benchmark complete: WER=%.3f, throughput=%.1fx, latency=%.2fs",
+            result.wer, result.throughput_ratio, result.total_latency_s,
+        )
+
     def closeEvent(self, event):
         """Handle close event."""
         self.closed.emit()
