@@ -90,16 +90,24 @@ class PyAudioWPatchSource:
         frame_count: int,
         time_info: Any,
         status: int,
-    ) -> None:
+    ):
         """PyAudio stream callback — pushes frames to the queue.
 
         IMPORTANT: in_data is a reused buffer owned by pyaudiowpatch.
         We must .copy() it before enqueueing. The callback must never
         block, so we use put_nowait() and silently drop on overflow.
         """
+        if not self._running:
+            return (None, pyaudiowpatch.paComplete)
+
         if status:
             logger.warning("PyAudioWPatch callback status flag: %s", status)
         try:
+            # Validate buffer before conversion
+            expected_bytes = frame_count * self.channels * 4  # float32 = 4 bytes
+            if in_data is None or len(in_data) != expected_bytes:
+                return (None, pyaudiowpatch.paContinue)
+
             # in_data is a ctypes buffer — convert to numpy and copy
             frames = np.frombuffer(in_data, dtype=np.float32).copy()
             frames = frames.reshape(-1, self.channels)
@@ -110,6 +118,8 @@ class PyAudioWPatchSource:
         except Exception:
             # Swallow in callback thread — never raise into PyAudio
             logger.exception("Unexpected error in PyAudioWPatch callback")
+
+        return (None, pyaudiowpatch.paContinue)
 
     # ------------------------------------------------------------------
     # Public interface (mirrors SoundDeviceSource)
@@ -170,15 +180,25 @@ class PyAudioWPatchSource:
             if not self._running:
                 return
 
+            # Signal callback to stop processing BEFORE closing the stream.
+            # This prevents the callback from accessing freed memory.
+            self._running = False
+
             if self._stream is not None:
                 try:
                     if self._stream.is_active():
-                        self._stream.stop()
+                        self._stream.stop_stream()
                     self._stream.close()
                 except Exception:
                     logger.exception("Error stopping PyAudioWPatch stream")
                 self._stream = None
-            self._running = False
+
+            # Drain remaining frames from queue
+            while not self._queue.empty():
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def read_frames(self, timeout: Optional[float] = None) -> Optional[np.ndarray]:
         """Read a block of audio frames from the internal queue.

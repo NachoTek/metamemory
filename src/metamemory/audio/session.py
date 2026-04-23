@@ -191,8 +191,14 @@ class AudioSourceWrapper:
             # soxr expects (samples, channels) shape
             if frames.ndim == 1:
                 frames = frames.reshape(-1, 1)
+            if frames.shape[0] == 0:
+                return frames
             # Use resample_chunk for streaming resampler
-            frames = self._resampler.resample_chunk(frames)
+            try:
+                frames = self._resampler.resample_chunk(frames)
+            except Exception:
+                # soxr can crash on malformed input — log and drop
+                return None
         
         return frames
     

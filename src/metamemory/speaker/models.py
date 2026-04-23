@@ -117,9 +117,12 @@ class DiarizationResult:
         """
         if raw_label in self.matches:
             return self.matches[raw_label].name
+        # speaker may be an int from sherpa-onnx, or a string like "spk0"
+        if isinstance(raw_label, int):
+            return f"SPK_{raw_label}"
         # Convert "spk0" -> "SPK_0", "spk1" -> "SPK_1"
         try:
-            idx = int("".join(c for c in raw_label if c.isdigit()))
+            idx = int("".join(c for c in str(raw_label) if c.isdigit()))
             return f"SPK_{idx}"
         except (ValueError, StopIteration):
-            return raw_label.upper()
+            return str(raw_label).upper()

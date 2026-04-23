@@ -58,6 +58,18 @@ class TrayIconManager:
 
         # Build menu
         self._menu = QMenu()
+        self._menu.setStyleSheet("""
+            QMenu {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: 1px solid #555;
+                padding: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #4CAF50;
+                color: #fff;
+            }
+        """)
         self._build_menu()
         self._tray.setContextMenu(self._menu)
 
@@ -214,10 +226,17 @@ class TrayIconManager:
             return
 
         if self._widget.isVisible():
+            # Hide widget and all floating panels
             self._widget.hide()
-            logger.info("Widget hidden via tray")
+            if hasattr(self._widget, '_floating_transcript_panel') and self._widget._floating_transcript_panel:
+                self._widget._floating_transcript_panel.hide()
+            if hasattr(self._widget, '_floating_settings_panel') and self._widget._floating_settings_panel:
+                self._widget._floating_settings_panel.hide()
+            self._toggle_visibility_action.setText("Show Widget")
+            logger.info("Widget and panels hidden via tray")
         else:
             self._show_widget()
+            self._toggle_visibility_action.setText("Hide Widget")
 
     def _handle_exit(self) -> None:
         """Handle Exit menu action."""

@@ -95,7 +95,22 @@ to avoid clipping issues and enable proper text rendering.
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setStyleSheet("background: transparent; border: none;")
+        self.setStyleSheet("""
+            MeetAndReadWidget {
+                background: transparent;
+                border: none;
+            }
+            QMenu {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: 1px solid #555;
+                padding: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #4CAF50;
+                color: #fff;
+            }
+        """)
         
         # Create scene (use _scene to avoid conflict with scene() method)
         self._scene = QGraphicsScene(self)
@@ -224,8 +239,8 @@ to avoid clipping issues and enable proper text rendering.
         self.mic_lobe.setPos(50, 10)
         self.system_lobe.setPos(110, 10)
         
-        # Settings lobe on side
-        self.settings_lobe.setPos(160, 50)
+        # Settings lobe overlapping bottom of record button (like input lobes on top)
+        self.settings_lobe.setPos(85, 85)
         
         # Error indicator at bottom
         self._error_indicator.setPos(10, 105)
@@ -335,12 +350,26 @@ to avoid clipping issues and enable proper text rendering.
             self.pulse_phase += 0.1
             if self.pulse_phase > 6.28:  # 2*PI
                 self.pulse_phase = 0.0
-            self.record_button.set_pulse_phase(self.pulse_phase)
+            self.record_button.pulse_phase = self.pulse_phase
+            self.record_button.update()
         elif self.is_processing:
             self.pulse_phase += 0.2
             if self.pulse_phase > 6.28:
                 self.pulse_phase = 0.0
-            self.record_button.set_swirl_phase(self.pulse_phase)
+            self.record_button.swirl_phase = self.pulse_phase
+            self.record_button.update()
+        else:
+            # Idle — reset animation phases so stale values don't leak
+            if self.pulse_phase != 0.0:
+                self.pulse_phase = 0.0
+                self.record_button.pulse_phase = 0.0
+                self.record_button.swirl_phase = 0.0
+            # Force state to idle if somehow stuck
+            if self.record_button._to_key != 'idle':
+                self.record_button._from_key = self.record_button._to_key
+                self.record_button._to_key = 'idle'
+                self.record_button._state_t = 0.0
+                self.record_button.update()
 
     def mousePressEvent(self, event):
         """Record press position for click vs drag detection."""
@@ -348,19 +377,14 @@ to avoid clipping issues and enable proper text rendering.
             self.drag_start_pos = event.globalPosition().toPoint()
             self.widget_start_pos = self.pos()
             self.press_time = QTime.currentTime()
-            
-            # Determine if press started on the drag surface
-            scene_pos = self.mapToScene(event.position().toPoint())
-            item = self._scene.itemAt(scene_pos, self.transform())
-            self._press_on_drag_surface = (item is self.drag_surface)
-            
+            self._click_consumed = False
             # DON'T accept - let events propagate to child items
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
-        """Handle dragging."""
+        """Handle dragging from any component."""
         if self.is_dragging:
             delta = event.globalPosition().toPoint() - self.drag_start_pos
             new_pos = self.widget_start_pos + delta
@@ -370,13 +394,13 @@ to avoid clipping issues and enable proper text rendering.
             self._update_docked_state()
             self._update_floating_panels_position()
             event.accept()
-        elif event.buttons() == Qt.MouseButton.LeftButton and self._press_on_drag_surface:
-            # Check if movement exceeds threshold to start dragging
+        elif event.buttons() & Qt.MouseButton.LeftButton:
             current_pos = event.globalPosition().toPoint()
             movement = (current_pos - self.drag_start_pos).manhattanLength()
             if movement >= 5:
-                # Start dragging from drag surface
+                # Drag threshold exceeded - start dragging, consume click
                 self.is_dragging = True
+                self._click_consumed = True
                 delta = current_pos - self.drag_start_pos
                 new_pos = self.widget_start_pos + delta
                 self.move(new_pos)
@@ -389,31 +413,20 @@ to avoid clipping issues and enable proper text rendering.
             super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
-        """Handle click (short duration, small movement) or end drag."""
+        """Handle click vs drag release."""
         if event.button() == Qt.MouseButton.LeftButton:
-            release_pos = event.globalPosition().toPoint()
-            release_time = QTime.currentTime()
-
-            # Calculate movement distance and time elapsed
-            movement = (release_pos - self.drag_start_pos).manhattanLength()
-            elapsed_ms = self.press_time.msecsTo(release_time)
-
-            # Threshold: less than 5 pixels = click, not drag
-            if movement < 5:
-                # This is a click
-                if self._press_on_drag_surface:
-                    # Click on drag surface - consume to prevent click-through
-                    event.accept()
-                else:
-                    # Click on interactive item - let child items handle it
-                    super().mouseReleaseEvent(event)
-            else:
-                # This is a drag - finalize drag operation
+            if self.is_dragging:
                 self.is_dragging = False
                 self._check_snap_to_edge()
                 event.accept()
+            elif self._click_consumed:
+                event.accept()
+            else:
+                # Short click - let child items handle it
+                super().mouseReleaseEvent(event)
         else:
             super().mouseReleaseEvent(event)
+    
     
     def _check_snap_to_edge(self):
         """Check if widget should snap to screen edge."""
@@ -483,10 +496,18 @@ to avoid clipping issues and enable proper text rendering.
             if self._floating_transcript_panel:
                 print("DEBUG: Showing floating transcript panel")
                 self._floating_transcript_panel.clear()
-                self._floating_transcript_panel.dock_to_widget(self, self._get_panel_position())
+                # Only dock to widget on first show; preserve user position after that
+                if not self._floating_transcript_panel._has_been_docked:
+                    self._floating_transcript_panel.dock_to_widget(self, self._get_panel_position())
                 self._floating_transcript_panel.show_panel()
+                # Switch to Live tab
+                self._floating_transcript_panel._tab_widget.setCurrentIndex(0)
             else:
                 print("DEBUG: No floating transcript panel to show!")
+            
+        elif state == ControllerState.STARTING:
+            # No visual change during startup — wait for RECORDING or ERROR
+            pass
             
         elif state == ControllerState.STOPPING:
             self.is_recording = False
@@ -578,9 +599,13 @@ to avoid clipping issues and enable proper text rendering.
         print(f"DEBUG UI: Post-processing complete! Job: {job_id}")
         print(f"DEBUG UI: Post-processed transcript saved to: {transcript_path}")
 
-        # Update panel status
+        # Update panel status and switch to History tab
         if self._floating_transcript_panel:
             self._floating_transcript_panel.status_label.setText(f"Post-processed transcript saved!")
+            # Switch to History tab to show the completed recording
+            self._floating_transcript_panel._tab_widget.setCurrentIndex(1)
+            # Refresh the history list to pick up the new transcript
+            self._floating_transcript_panel._refresh_history()
             QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
 
         # Update Performance tab WER display
@@ -671,6 +696,11 @@ to avoid clipping issues and enable proper text rendering.
     def _exit_application(self):
         """Exit the application cleanly (full quit, even with tray)."""
         self._save_position()
+        # Hide all floating panels first
+        if self._floating_transcript_panel:
+            self._floating_transcript_panel.hide()
+        if self._floating_settings_panel:
+            self._floating_settings_panel.hide()
         if self._tray_manager is not None:
             self._tray_manager.hide()
         QApplication.quit()
@@ -678,10 +708,9 @@ to avoid clipping issues and enable proper text rendering.
     def _save_position(self):
         """Save widget position to config."""
         try:
-            settings = get_config()
-            settings.ui.widget_position = (self.x(), self.y())
-            settings.ui.widget_dock_edge = self.dock_edge
-            save_config(settings)
+            set_config('ui.widget_position', (self.x(), self.y()))
+            set_config('ui.widget_dock_edge', self.dock_edge)
+            save_config()
             print(f"DEBUG: Saved widget position: ({self.x()}, {self.y()}), dock: {self.dock_edge}")
         except Exception as e:
             print(f"DEBUG: Failed to save position: {e}")
@@ -766,12 +795,10 @@ class RecordButtonItem(QGraphicsEllipseItem):
     def set_pulse_phase(self, phase):
         """Set pulse animation phase."""
         self.pulse_phase = phase
-        self.update()
-    
+
     def set_swirl_phase(self, phase):
         """Set swirl animation phase."""
         self.swirl_phase = phase
-        self.update()
     
     def paint(self, painter, option, widget=None):
         """Custom paint with eased cross-fade between states."""
@@ -875,9 +902,15 @@ class RecordButtonItem(QGraphicsEllipseItem):
                               size, size)
     
     def mousePressEvent(self, event):
-        """Handle click."""
+        """Accept press to get release event — action fires on release."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.parent_widget.toggle_recording()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """Fire action on release, only if this wasn't a drag."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not self.parent_widget.is_dragging and not self.parent_widget._click_consumed:
+                self.parent_widget.toggle_recording()
             event.accept()
 
 
@@ -959,11 +992,17 @@ class ToggleLobeItem(QGraphicsEllipseItem):
             ])
     
     def mousePressEvent(self, event):
-        """Toggle state."""
+        """Accept press to get release event — action fires on release."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.is_active = not self.is_active
-            self.update()
-            print(f"{self.lobe_type} toggled: {self.is_active}")
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """Toggle on release, only if this wasn't a drag."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not self.parent_widget.is_dragging and not self.parent_widget._click_consumed:
+                self.is_active = not self.is_active
+                self.update()
+                print(f"{self.lobe_type} toggled: {self.is_active}")
             event.accept()
 
 
@@ -1017,10 +1056,15 @@ class SettingsLobeItem(QGraphicsEllipseItem):
         painter.drawPoint(int(center.x()), int(center.y()))
     
     def mousePressEvent(self, event):
-        """Open settings."""
+        """Accept press to get release event — action fires on release."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Toggle floating settings panel
-            self.parent_widget._toggle_settings_panel()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """Open settings on release, only if this wasn't a drag."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not self.parent_widget.is_dragging and not self.parent_widget._click_consumed:
+                self.parent_widget._toggle_settings_panel()
             event.accept()
 
 

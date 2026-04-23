@@ -85,7 +85,10 @@ class FloatingTranscriptPanel(QWidget):
         # Raw speaker labels that have been pinned by the user
         self._pinned_speakers: set = set()
         
-        # Window settings
+        # Track whether panel has been positioned at least once
+        self._has_been_docked = False
+        
+        # Window settings (FloatingTranscriptPanel)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
@@ -350,6 +353,7 @@ class FloatingTranscriptPanel(QWidget):
             y = widget_pos.y() + widget_rect.height() + 10
         
         self.move(x, y)
+        self._has_been_docked = True
     
     def show_panel(self) -> None:
         """Show the panel with a 150ms fade-in and start auto-scroll."""
@@ -1720,13 +1724,19 @@ class FloatingSettingsPanel(QWidget):
         self._benchmark_btn.setEnabled(False)
         self._benchmark_btn.setText("Running...")
 
-        # Get the transcription engine from the controller
+        # Create a fresh engine for benchmarking.
+        # The controller's internal engine is only available during active
+        # recording and is set to None on stop, so we can't rely on it.
         engine = None
-        if self._controller is not None:
-            engine = getattr(self._controller, '_transcription_processor', None)
-            # AccumulatingTranscriptionProcessor wraps a WhisperEngine internally
-            if engine is not None:
-                engine = getattr(engine, '_engine', None)
+        try:
+            from metamemory.transcription.engine import WhisperTranscriptionEngine
+            from metamemory.config import get_config
+            settings = get_config()
+            model_size = settings.transcription.realtime_model_size
+            engine = WhisperTranscriptionEngine(model_size=model_size)
+            engine.load_model()
+        except Exception as exc:
+            logger.warning("Could not create transcription engine for benchmark: %s", exc)
 
         self._benchmark_runner = BenchmarkRunner(
             engine=engine,
