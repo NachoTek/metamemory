@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import re
+import time
 
 from metamemory.transcription.confidence import get_confidence_color, get_confidence_legend
 from metamemory.hardware.detector import HardwareDetector
@@ -358,6 +359,16 @@ class FloatingTranscriptPanel(QWidget):
         
         # Confidence legend overlay (initially hidden)
         self._create_legend_overlay()
+        
+        # Recording duration tracking
+        self._recording_start_time: Optional[float] = None
+        self._duration_timer = QTimer(self)
+        self._duration_timer.setInterval(1000)  # 1-second tick
+        self._duration_timer.timeout.connect(self._update_duration)
+        
+        # Empty state tracking
+        self._has_content: bool = False
+        self._show_empty_state()
     
     # ------------------------------------------------------------------
     # Confidence legend overlay
@@ -477,12 +488,33 @@ class FloatingTranscriptPanel(QWidget):
         """Show the panel with a 150ms fade-in and start auto-scroll."""
         self._start_fade_in()
         self.scroll_timer.start(100)  # Scroll check every 100ms
-        self.status_label.setText("Recording...")
+        self._recording_start_time = time.time()
+        self._duration_timer.start()
+        self._update_duration()  # Show "Recording · 00:00" immediately
     
     def hide_panel(self) -> None:
         """Hide the panel with a 150ms fade-out."""
         self.scroll_timer.stop()
+        self._duration_timer.stop()
+        self._recording_start_time = None
         self._start_fade_out()
+
+    def _update_duration(self) -> None:
+        """Update the status label with elapsed recording duration (mm:ss)."""
+        if self._recording_start_time is not None:
+            elapsed = int(time.time() - self._recording_start_time)
+            mins = f"{elapsed // 60:02d}"
+            secs = f"{elapsed % 60:02d}"
+            self.status_label.setText(f"Recording · {mins}:{secs}")
+
+    def _show_empty_state(self) -> None:
+        """Show a friendly placeholder in the transcript area when no content exists."""
+        if not self._has_content:
+            self.text_edit.setHtml(
+                '<div style="color: #555; text-align: center; margin-top: 80px;">'
+                'Transcription will appear here...'
+                '</div>'
+            )
 
     # ------------------------------------------------------------------
     # Fade transition helpers
@@ -543,6 +575,8 @@ class FloatingTranscriptPanel(QWidget):
         self.text_edit.clear()
         self.phrases.clear()
         self.current_phrase_idx = -1
+        self._has_content = False
+        self._show_empty_state()
 
     def update_segment(self, text: str, confidence: int, segment_index: int, is_final: bool = False, phrase_start: bool = False, speaker_id: Optional[str] = None) -> None:
         """
@@ -558,6 +592,11 @@ class FloatingTranscriptPanel(QWidget):
         """
         if text.strip() == "[BLANK_AUDIO]":
             return
+        
+        # Clear empty-state placeholder on first real content
+        if not self._has_content:
+            self._has_content = True
+            self.text_edit.clear()
         
         # Start new phrase if needed
         if phrase_start or self.current_phrase_idx < 0:
@@ -593,10 +632,6 @@ class FloatingTranscriptPanel(QWidget):
 
             # Append segment to display with proper formatting
             self._append_segment_to_display(text, confidence)
-        
-        # Update status
-        total_segments = sum(len(p.segments) for p in self.phrases)
-        self.status_label.setText(f"Phrases: {len(self.phrases)} | Segments: {total_segments}")
         
         # Auto-scroll
         self._scroll_to_bottom()
@@ -1075,6 +1110,17 @@ class FloatingTranscriptPanel(QWidget):
     def _insert_speaker_label(self, speaker_id: str) -> None:
         """Insert a clickable speaker label at the current cursor position."""
         cursor = self.text_edit.textCursor()
+        
+        # Prepend elapsed timestamp if recording is active
+        if self._recording_start_time is not None:
+            elapsed = int(time.time() - self._recording_start_time)
+            mins = f"{elapsed // 60:02d}"
+            secs = f"{elapsed % 60:02d}"
+            ts_fmt = QTextCharFormat()
+            ts_fmt.setForeground(QColor("#666666"))
+            ts_fmt.setFontWeight(QFont.Weight.Normal)
+            cursor.insertText(f"[{mins}:{secs}] ", ts_fmt)
+        
         color = speaker_color(speaker_id)
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))
