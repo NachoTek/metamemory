@@ -267,35 +267,29 @@ to avoid clipping issues and enable proper text rendering.
         self._error_indicator.setPos(10, 105)
     
     def _update_floating_panels_position(self):
-        """Update position of floating panels based on widget position."""
+        """Update position of floating panels based on widget position.
+
+        Only left/right docking is supported — panels open on the side
+        opposite the docked edge.
+        """
         if not self._floating_transcript_panel or not self._floating_settings_panel:
             return
-        
-        # Get widget position in global coordinates
-        widget_global_pos = self.mapToGlobal(self.rect().topLeft())
-        
-        # Determine position based on dock edge or default
+
         if self.dock_edge == 'right':
             transcript_pos = "left"
             settings_pos = "left"
         elif self.dock_edge == 'left':
             transcript_pos = "right"
             settings_pos = "right"
-        elif self.dock_edge == 'top':
-            transcript_pos = "bottom"
-            settings_pos = "right"
-        elif self.dock_edge == 'bottom':
-            transcript_pos = "top"
-            settings_pos = "right"
         else:
             # Default: panel flows to the left
             transcript_pos = "left"
             settings_pos = "right"
-        
+
         # Update panel positions
         if self._floating_transcript_panel.isVisible():
             self._floating_transcript_panel.dock_to_widget(self, transcript_pos)
-        
+
         if self._floating_settings_panel.isVisible():
             self._floating_settings_panel.dock_to_widget(self, settings_pos)
     
@@ -422,16 +416,65 @@ to avoid clipping issues and enable proper text rendering.
         else:
             super().mousePressEvent(event)
     
+    def _check_drag_edge_snap(self, new_pos):
+        """Check if a drag position is within 20px of left/right screen edge.
+
+        Returns (should_snap, edge) where *edge* is 'left', 'right', or None.
+        When *should_snap* is True the caller should slide to the peek position
+        instead of following the mouse directly.
+        """
+        screen = QApplication.primaryScreen().geometry()
+        snap_threshold = 20
+        if new_pos.x() < snap_threshold:
+            return True, 'left'
+        if new_pos.x() + self.width() > screen.width() - snap_threshold:
+            return True, 'right'
+        return False, None
+
+    def _apply_drag_position(self, new_pos):
+        """Move widget to *new_pos* with live magnet snap on left/right edges.
+
+        Called from ``mouseMoveEvent`` during drag.  When the computed
+        position is within 20 px of a horizontal screen edge the widget
+        snaps to the 1/5th peek position via a smooth slide animation.
+        When the widget leaves the edge zone it unsnaps and follows the
+        mouse freely.
+        """
+        should_snap, edge = self._check_drag_edge_snap(new_pos)
+        was_docked = self.is_docked
+
+        if should_snap:
+            # Commit to docked peek position
+            self.dock_edge = edge
+            self.is_docked = True
+            peek = self._peek_width
+            screen = QApplication.primaryScreen().geometry()
+            if edge == 'left':
+                target = QPoint(-(self.width() - peek), new_pos.y())
+            else:
+                target = QPoint(screen.width() - peek, new_pos.y())
+            self._start_slide_to(target)
+            logging.getLogger(__name__).debug(
+                "Magnet snap: edge=%s, target=%s", edge, target
+            )
+            print(f"DEBUG: Magnet snap: edge={edge}, target={target}")
+        else:
+            # Not near any edge — unsnap if previously docked
+            if was_docked:
+                self.is_docked = False
+                self.dock_edge = None
+                logging.getLogger(__name__).debug("Magnet unsnap: following mouse")
+                print("DEBUG: Magnet unsnap: following mouse")
+            self.move(new_pos)
+
+        self._update_floating_panels_position()
+
     def mouseMoveEvent(self, event):
-        """Handle dragging from any component."""
+        """Handle dragging from any component with live magnet snap."""
         if self.is_dragging:
             delta = event.globalPosition().toPoint() - self.drag_start_pos
             new_pos = self.widget_start_pos + delta
-            self.move(new_pos)
-            self.is_docked = False
-            self.dock_edge = None
-            self._update_docked_state()
-            self._update_floating_panels_position()
+            self._apply_drag_position(new_pos)
             event.accept()
         elif event.buttons() & Qt.MouseButton.LeftButton:
             current_pos = event.globalPosition().toPoint()
@@ -442,11 +485,7 @@ to avoid clipping issues and enable proper text rendering.
                 self._click_consumed = True
                 delta = current_pos - self.drag_start_pos
                 new_pos = self.widget_start_pos + delta
-                self.move(new_pos)
-                self.is_docked = False
-                self.dock_edge = None
-                self._update_docked_state()
-                self._update_floating_panels_position()
+                self._apply_drag_position(new_pos)
                 event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -468,28 +507,25 @@ to avoid clipping issues and enable proper text rendering.
     
     
     def _check_snap_to_edge(self):
-        """Check if widget should snap to screen edge."""
+        """Check if widget should snap to left/right screen edge.
+
+        Only horizontal edges are considered — top/bottom docking was
+        removed in favour of left/right only.
+        """
         screen = QApplication.primaryScreen().geometry()
         pos = self.pos()
         snap_threshold = 20
-        
-        # Check each edge
+
         if pos.x() < snap_threshold:
             self.dock_edge = 'left'
             self.is_docked = True
         elif pos.x() + self.width() > screen.width() - snap_threshold:
             self.dock_edge = 'right'
             self.is_docked = True
-        elif pos.y() < snap_threshold:
-            self.dock_edge = 'top'
-            self.is_docked = True
-        elif pos.y() + self.height() > screen.height() - snap_threshold:
-            self.dock_edge = 'bottom'
-            self.is_docked = True
         else:
             self.is_docked = False
             self.dock_edge = None
-        
+
         self._update_docked_state()
         self._update_floating_panels_position()
     
@@ -607,10 +643,6 @@ to avoid clipping issues and enable proper text rendering.
             return "left"
         elif self.dock_edge == 'left':
             return "right"
-        elif self.dock_edge == 'top':
-            return "bottom"
-        elif self.dock_edge == 'bottom':
-            return "top"
         else:
             return "left"  # Default
     
