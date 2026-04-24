@@ -15,6 +15,7 @@ to avoid clipping issues and enable proper text editing.
 from pathlib import Path
 from typing import Optional
 import logging
+import re
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsTextItem,
@@ -159,6 +160,7 @@ to avoid clipping issues and enable proper text rendering.
         self._error_indicator = None  # For showing errors
         self._warning_indicator = None  # For showing resource warnings
         self._warning_hide_timer: Optional[QTimer] = None  # Auto-hide timer for warnings
+        self._error_hide_timer: Optional[QTimer] = None  # Auto-hide timer for errors
         
         # Floating panels (separate windows, not QGraphicsItems)
         self._floating_transcript_panel: Optional[FloatingTranscriptPanel] = None
@@ -670,16 +672,32 @@ to avoid clipping issues and enable proper text rendering.
         self._pulse_timer.timeout.connect(_tick)
         self._pulse_timer.start(100)
     
-    def _show_error(self, message):
+    def _show_error(self, message, is_recoverable=True):
         """Show error indicator with message."""
-        self._error_indicator.set_text(message)
+        self._error_indicator.set_text(message, is_recoverable=is_recoverable)
         self._error_indicator.show()
-        # Auto-hide after 3 seconds
-        QTimer.singleShot(3000, self._hide_error)
+        # Auto-hide after 8 seconds
+        if self._error_hide_timer is not None:
+            self._error_hide_timer.stop()
+        self._error_hide_timer = QTimer(self)
+        self._error_hide_timer.setSingleShot(True)
+        self._error_hide_timer.timeout.connect(self._hide_error)
+        self._error_hide_timer.start(8000)
     
     def _hide_error(self):
         """Hide error indicator."""
         self._error_indicator.hide()
+    
+    def _on_error_help_toggled(self, expanded):
+        """Handle help panel expansion — cancel/restart auto-hide timer."""
+        if self._error_hide_timer is not None:
+            self._error_hide_timer.stop()
+        if not expanded:
+            # Restart auto-hide timer when collapsed
+            self._error_hide_timer = QTimer(self)
+            self._error_hide_timer.setSingleShot(True)
+            self._error_hide_timer.timeout.connect(self._hide_error)
+            self._error_hide_timer.start(8000)
     
     def _show_resource_warning(self, message):
         """Show resource warning indicator on the main widget scene."""
@@ -767,8 +785,8 @@ to avoid clipping issues and enable proper text rendering.
     
     def _on_controller_error(self, error):
         """Handle controller errors."""
-        self._show_error(error.message)
-        logging.error("Recording error: %s", error.message)
+        self._show_error(error.message, is_recoverable=error.is_recoverable)
+        logging.error("Recording error: %s (recoverable: %s)", error.message, error.is_recoverable)
     
     def _on_phrase_result(self, result: SegmentResult):
         """Handle segment result from accumulating transcription processor.
@@ -1340,24 +1358,73 @@ class SettingsLobeItem(QGraphicsEllipseItem):
             event.accept()
 
 
+def get_error_help_text(message: str) -> Optional[str]:
+    """Return context-specific help text for known error patterns, or None."""
+    patterns = [
+        (r'no.*(source|mic|system|audio).*select',
+         "Click a lobe on the widget to enable microphone or system audio, then try recording again."),
+        (r'transcription.*(fail|error|unable)',
+         "Try selecting a smaller Whisper model (Tiny or Base) in Settings → Settings tab. Smaller models use less memory."),
+        (r'(device|microphone|speaker).*not.*(found|available|detect)',
+         "Check that your audio device is connected and recognized by the system. Try unplugging and reconnecting."),
+        (r'(memory|ram|resource).*low|out of memory',
+         "Close other applications to free memory. Try a smaller Whisper model in Settings."),
+    ]
+    lower = message.lower()
+    for pattern, help_text in patterns:
+        if re.search(pattern, lower):
+            return help_text
+    return None
+
+
 class ErrorIndicatorItem(QGraphicsRectItem):
     """Error indicator displayed below the record button."""
     
     def __init__(self, parent_widget):
-        super().__init__(0, 0, 180, 14)
+        super().__init__(0, 0, 190, 14)
         self.parent_widget = parent_widget
         self._text = ""
         self._visible = False
         self._color_mode = "error"  # "error" (red) or "warning" (orange)
+        self._help_text: Optional[str] = None
+        self._help_expanded: bool = False
+        self._base_height: int = 14
 
     def set_color_mode(self, mode: str):
         """Set color mode: 'error' for red, 'warning' for orange."""
         self._color_mode = mode
     
-    def set_text(self, text):
-        """Set the error message text."""
+    def set_text(self, text, is_recoverable=True):
+        """Set the error message text. Only show help for recoverable errors."""
         self._text = text
+        if is_recoverable:
+            self._help_text = get_error_help_text(text)
+        else:
+            self._help_text = None
+        self._help_expanded = False
+        self._recalc_rect()
         self.update()
+    
+    def _recalc_rect(self):
+        """Recalculate rect height based on expansion state."""
+        w = 190
+        h = self._base_height
+        if self._help_expanded and self._help_text:
+            font = QFont("Arial", 7)
+            from PyQt6.QtGui import QFontMetrics
+            from PyQt6.QtCore import QRect
+            fm = QFontMetrics(font)
+            # Wrap help text within the available width (190 - 8 margins)
+            text_width = w - 8
+            help_rect = fm.boundingRect(QRect(0, 0, text_width, 100),
+                                        Qt.TextFlag.TextWordWrap, self._help_text)
+            h += help_rect.height() + 4  # 4px gap between error text and help
+        self.setRect(0, 0, w, h)
+    
+    def _help_button_rect(self):
+        """Return the QRectF for the '?' help button area."""
+        rect = self.rect()
+        return QRectF(rect.width() - 16, 1, 14, 12)
     
     def show(self):
         """Show the error indicator."""
@@ -1367,7 +1434,28 @@ class ErrorIndicatorItem(QGraphicsRectItem):
     def hide(self):
         """Hide the error indicator."""
         self._visible = False
+        self._help_expanded = False
+        self._recalc_rect()
         self.update()
+    
+    def mousePressEvent(self, event):
+        """Handle clicks — toggle help panel if '?' button clicked."""
+        if self._help_text is not None:
+            btn_rect = self._help_button_rect()
+            pos = event.pos()
+            if btn_rect.contains(pos):
+                self._help_expanded = not self._help_expanded
+                self._recalc_rect()
+                self.update()
+                # Notify parent widget about expansion change
+                if hasattr(self.parent_widget, '_on_error_help_toggled'):
+                    self.parent_widget._on_error_help_toggled(self._help_expanded)
+                event.accept()
+                return
+        try:
+            super().mousePressEvent(event)
+        except TypeError:
+            pass
     
     def paint(self, painter, option, widget=None):
         """Paint error indicator."""
@@ -1384,13 +1472,33 @@ class ErrorIndicatorItem(QGraphicsRectItem):
             painter.setPen(QPen(QColor(255, 100, 100, 255), 1))
         painter.drawRoundedRect(rect, 3, 3)
         
-        # Text
+        # Error text
         if self._text:
             painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
             font = QFont("Arial", 8)
             font.setBold(True)
             painter.setFont(font)
             
-            # Center text
-            text_rect = rect.adjusted(2, 1, -2, -1)
+            text_rect = rect.adjusted(2, 1, -16 if self._help_text is not None else -2, -1)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
+        
+        # Help '?' button
+        if self._help_text is not None:
+            btn = self._help_button_rect()
+            painter.setBrush(QBrush(QColor(0, 188, 188, 220)))  # teal
+            painter.setPen(QPen(QColor(0, 220, 220, 255), 1))
+            painter.drawRoundedRect(btn, 3, 3)
+            painter.setPen(QPen(QColor(255, 255, 255, 255), 1))
+            help_font = QFont("Arial", 8)
+            help_font.setBold(True)
+            painter.setFont(help_font)
+            painter.drawText(btn, Qt.AlignmentFlag.AlignCenter, "?")
+        
+        # Expanded help text
+        if self._help_expanded and self._help_text:
+            painter.setPen(QPen(QColor(255, 255, 200, 230), 1))
+            help_font = QFont("Arial", 7)
+            help_font.setBold(False)
+            painter.setFont(help_font)
+            help_rect = QRectF(4, self._base_height + 2, rect.width() - 8, rect.height() - self._base_height - 2)
+            painter.drawText(help_rect, Qt.TextFlag.TextWordWrap, self._help_text)
