@@ -18,8 +18,8 @@ PERFORMANCE
   Processing time:      60.3s
   Throughput:           2.5x realtime
   Chunks processed:     30
-  Avg chunk latency:    2.010s
-  Max chunk latency:    2.109s
+  Avg chunk latency:    2.011s
+  Max chunk latency:    2.078s
 
 WORD ERROR RATE
 ----------------------------------------
