@@ -328,15 +328,26 @@ class TestBenchmarkRunner:
 
     def test_run_with_silence_clip(self):
         """Benchmark on silence clip returns WER 0.0 (no ground truth text)."""
-        engine = self._make_mock_engine(text="")
-        runner = BenchmarkRunner(engine=engine)
-        result = runner.run()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav_path = Path(tmpdir) / "silence.wav"
+            gt_path = Path(tmpdir) / "ground_truth.txt"
+            self._make_test_wav(wav_path, duration_s=1.0)
+            # Empty ground truth -> WER is 0.0 regardless of transcription
+            gt_path.write_text("", encoding="utf-8")
 
-        assert isinstance(result, BenchmarkResult)
-        assert result.error is None
-        assert result.wer == 0.0
-        assert result.total_audio_s > 0
-        assert result.total_latency_s >= 0  # Mock may be sub-millisecond
+            engine = self._make_mock_engine(text="")
+            runner = BenchmarkRunner(
+                engine=engine,
+                test_clip_path=wav_path,
+                ground_truth_path=gt_path,
+            )
+            result = runner.run()
+
+            assert isinstance(result, BenchmarkResult)
+            assert result.error is None
+            assert result.wer == 0.0
+            assert result.total_audio_s > 0
+            assert result.total_latency_s >= 0  # Mock may be sub-millisecond
 
     def test_run_with_text_and_ground_truth(self):
         """Benchmark computes WER against ground truth."""
