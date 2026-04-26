@@ -45,7 +45,7 @@ dev = [
 ]
 
 [project.scripts]
-meetandread = "metamemory.main:main"
+meetandread = "meetandread.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -26,6 +26,7 @@ Requires-Dist: sherpa-onnx>=1.10.0
 Requires-Dist: psutil>=5.9.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-qt>=4.0.0; extra == "dev"
 Requires-Dist: black>=22.0.0; extra == "dev"
 Requires-Dist: mypy>=1.0.0; extra == "dev"
 
