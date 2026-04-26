@@ -138,7 +138,7 @@ class TestModelInfo:
         info = get_model_info('small')
         assert info.size == 'small'
         assert info.ram_required_gb == 1.5
-        assert info.accuracy_rating == 'Best'
+        assert info.accuracy_rating == 'Very Good'
         assert info.latency_profile == 'Moderate'
     
     def test_get_model_info_invalid(self):
@@ -149,11 +149,13 @@ class TestModelInfo:
     def test_get_all_model_info(self):
         """Test retrieving all model info."""
         all_info = get_all_model_info()
-        assert len(all_info) == 3
+        assert len(all_info) == 5
         sizes = [info.size for info in all_info]
         assert 'tiny' in sizes
         assert 'base' in sizes
         assert 'small' in sizes
+        assert 'medium' in sizes
+        assert 'large' in sizes
 
 
 class TestModelRecommender:
@@ -163,7 +165,7 @@ class TestModelRecommender:
         """Test detection and recommendation."""
         recommender = ModelRecommender()
         result = recommender.detect_and_recommend()
-        assert result in ['tiny', 'base', 'small']
+        assert result in ['tiny', 'base', 'small', 'medium', 'large']
     
     def test_get_recommendation_caches(self):
         """Test get_recommendation returns cached value."""
@@ -177,7 +179,7 @@ class TestModelRecommender:
         recommender = ModelRecommender()
         info = recommender.get_recommended_info()
         assert isinstance(info, ModelInfo)
-        assert info.size in ['tiny', 'base', 'small']
+        assert info.size in ['tiny', 'base', 'small', 'medium', 'large']
     
     def test_get_detected_specs(self):
         """Test getting detected specs."""
