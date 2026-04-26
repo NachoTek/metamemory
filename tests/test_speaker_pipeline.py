@@ -66,6 +66,7 @@ def downloaded_models(tmp_path_factory):
 # Tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_model_download_and_diarize(downloaded_models, tmp_path):
     """End-to-end: download models, create synth WAV, run diarization."""
     import sherpa_onnx
@@ -134,6 +135,7 @@ def test_model_download_and_diarize(downloaded_models, tmp_path):
         assert segment.end >= segment.start
 
 
+@pytest.mark.slow
 def test_speaker_embedding_extractor(downloaded_models):
     """Verify SpeakerEmbeddingExtractor + Manager work on Windows."""
     import sherpa_onnx
@@ -275,6 +277,7 @@ class TestDiarizerModels:
 class TestDiarizer:
     """Tests for the Diarizer wrapper class."""
 
+    @pytest.mark.slow
     def test_diarizer_synth_wav(self, downloaded_models, tmp_path):
         """Diarizer.diarize() on a synthetic WAV returns a valid result."""
         from metamemory.speaker.diarizer import Diarizer
@@ -295,6 +298,7 @@ class TestDiarizer:
             assert seg.end >= seg.start
             assert seg.speaker  # non-empty label
 
+    @pytest.mark.slow
     def test_diarizer_missing_wav(self, downloaded_models, tmp_path):
         """Diarizer.diarize() on a missing file returns error result."""
         from metamemory.speaker.diarizer import Diarizer
@@ -307,6 +311,7 @@ class TestDiarizer:
         assert result.error is not None
         assert "not found" in result.error.lower() or "no such" in result.error.lower() or "error" in result.error.lower()
 
+    @pytest.mark.slow
     def test_diarizer_warm_up(self, downloaded_models):
         """Diarizer.warm_up() loads models without crashing."""
         from metamemory.speaker.diarizer import Diarizer
@@ -317,6 +322,7 @@ class TestDiarizer:
         # Second call should be a no-op (already initialized)
         diarizer.warm_up()
 
+    @pytest.mark.slow
     def test_diarizer_signatures_populated(self, downloaded_models, tmp_path):
         """If segments are found, each speaker should have a voice signature."""
         from metamemory.speaker.diarizer import Diarizer
