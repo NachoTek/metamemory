@@ -36,11 +36,8 @@ class TeeOutput:
 
 def setup_logging():
     """Setup logging to both console and file with timestamped filename."""
-    # Determine logs directory: next to the executable when frozen, or project root in dev
-    if getattr(sys, "frozen", False):
-        logs_dir = Path(sys.executable).parent / "logs"
-    else:
-        logs_dir = Path(__file__).parent.parent.parent / "logs"
+    # Determine logs directory: under user Documents for both frozen and dev
+    logs_dir = Path.home() / "Documents" / "metamemory" / "logs"
     logs_dir.mkdir(exist_ok=True)
     
     # Create timestamped log filename
