@@ -213,8 +213,8 @@ class TestResourceMonitor:
         """on_warning not fired when resources are below thresholds."""
         warnings = []
         monitor = ResourceMonitor(
-            ram_warning_percent=100.0,  # Impossible to trigger
-            cpu_warning_percent=100.0,
+            ram_warning_percent=101.0,  # Impossible to trigger
+            cpu_warning_percent=101.0,
             on_warning=lambda name, val, thresh: warnings.append(name),
         )
         monitor.poll()
