@@ -1,4 +1,4 @@
-"""Settings dataclasses for metamemory configuration.
+"""Settings dataclasses for meetandread configuration.
 
 Provides type-safe configuration models with serialization support.
 All settings use dataclasses with from_dict/to_dict methods for JSON persistence.

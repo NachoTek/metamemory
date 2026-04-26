@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from metamemory.audio.storage.paths import get_recordings_dir
+from meetandread.audio.storage.paths import get_recordings_dir
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ def scan_recordings(recordings_dir: Optional[Path] = None) -> List[RecordingMeta
     Returns:
         List of RecordingMeta sorted by recording_time descending.
     """
-    from metamemory.audio.storage.paths import get_transcripts_dir
+    from meetandread.audio.storage.paths import get_transcripts_dir
     
     if recordings_dir is None:
         recordings_dir = get_transcripts_dir()

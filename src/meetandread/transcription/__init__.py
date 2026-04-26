@@ -16,15 +16,15 @@ Provides the core transcription pipeline:
 Uses whisper.cpp via pywhispercpp for CPU-only operation without PyTorch DLL dependencies.
 """
 
-from metamemory.transcription.audio_buffer import AudioRingBuffer
-from metamemory.transcription.vad_processor import VADChunkingProcessor
-from metamemory.transcription.local_agreement import LocalAgreementBuffer
-from metamemory.transcription.engine import (
+from meetandread.transcription.audio_buffer import AudioRingBuffer
+from meetandread.transcription.vad_processor import VADChunkingProcessor
+from meetandread.transcription.local_agreement import LocalAgreementBuffer
+from meetandread.transcription.engine import (
     WhisperTranscriptionEngine,
     TranscriptionSegment,
     WordInfo,
 )
-from metamemory.transcription.confidence import (
+from meetandread.transcription.confidence import (
     normalize_confidence,
     get_confidence_level,
     get_confidence_color,
@@ -34,17 +34,17 @@ from metamemory.transcription.confidence import (
     ConfidenceLevel,
     ConfidenceLegendItem,
 )
-from metamemory.transcription.post_processor import (
+from meetandread.transcription.post_processor import (
     PostProcessingQueue,
     PostProcessJob,
     PostProcessStatus,
 )
-from metamemory.transcription.transcript_store import (
+from meetandread.transcription.transcript_store import (
     TranscriptStore,
     Word,
     Segment,
 )
-from metamemory.transcription.accumulating_processor import (
+from meetandread.transcription.accumulating_processor import (
     AccumulatingTranscriptionProcessor,
     SegmentResult,
 )

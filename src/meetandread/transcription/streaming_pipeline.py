@@ -26,11 +26,11 @@ from typing import Optional, List, Callable, Any, Dict
 from pathlib import Path
 import numpy as np
 
-from metamemory.config.models import AppSettings, TranscriptionSettings
-from metamemory.transcription.audio_buffer import AudioRingBuffer
-from metamemory.transcription.vad_processor import VADChunkingProcessor
-from metamemory.transcription.engine import WhisperTranscriptionEngine, TranscriptionSegment
-from metamemory.transcription.confidence import ConfidenceLevel
+from meetandread.config.models import AppSettings, TranscriptionSettings
+from meetandread.transcription.audio_buffer import AudioRingBuffer
+from meetandread.transcription.vad_processor import VADChunkingProcessor
+from meetandread.transcription.engine import WhisperTranscriptionEngine, TranscriptionSegment
+from meetandread.transcription.confidence import ConfidenceLevel
 
 
 @dataclass

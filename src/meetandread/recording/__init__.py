@@ -3,7 +3,7 @@
 Provides RecordingController for widget integration.
 """
 
-from metamemory.recording.controller import (
+from meetandread.recording.controller import (
     RecordingController,
     ControllerState,
     ControllerError,

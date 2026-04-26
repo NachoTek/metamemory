@@ -1,4 +1,4 @@
-"""Programmatic icon generation for metamemory.
+"""Programmatic icon generation for meetandread.
 
 Creates application icons using QPainter/QPixmap so no external image
 files are needed. Two variants:

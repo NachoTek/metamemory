@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from metamemory.config.models import AppSettings
+from meetandread.config.models import AppSettings
 
 
 logger = logging.getLogger(__name__)
@@ -70,9 +70,9 @@ class SettingsPersistence:
         """Get the path to the config.json file.
         
         Uses platform-appropriate location:
-        - Windows: %APPDATA%/metamemory/config.json
-        - macOS: ~/Library/Application Support/metamemory/config.json
-        - Linux: ~/.config/metamemory/config.json
+        - Windows: %APPDATA%/meetandread/config.json
+        - macOS: ~/Library/Application Support/meetandread/config.json
+        - Linux: ~/.config/meetandread/config.json
         
         Returns:
             Path to config.json file.
@@ -100,25 +100,25 @@ class SettingsPersistence:
         system = platform.system()
         
         if system == "Windows":
-            # Windows: %APPDATA%/metamemory
+            # Windows: %APPDATA%/meetandread
             app_data = os.environ.get("APPDATA")
             if app_data:
-                return Path(app_data) / "metamemory"
+                return Path(app_data) / "meetandread"
             else:
                 # Fallback to user profile
-                return Path.home() / "AppData" / "Roaming" / "metamemory"
+                return Path.home() / "AppData" / "Roaming" / "meetandread"
         
         elif system == "Darwin":
-            # macOS: ~/Library/Application Support/metamemory
-            return Path.home() / "Library" / "Application Support" / "metamemory"
+            # macOS: ~/Library/Application Support/meetandread
+            return Path.home() / "Library" / "Application Support" / "meetandread"
         
         else:
-            # Linux and others: ~/.config/metamemory
+            # Linux and others: ~/.config/meetandread
             xdg_config = os.environ.get("XDG_CONFIG_HOME")
             if xdg_config:
-                return Path(xdg_config) / "metamemory"
+                return Path(xdg_config) / "meetandread"
             else:
-                return Path.home() / ".config" / "metamemory"
+                return Path.home() / ".config" / "meetandread"
     
     def get_default_settings(self) -> AppSettings:
         """Get a fresh instance with all default values.

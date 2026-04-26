@@ -19,12 +19,12 @@ import json
 import re
 import time
 
-from metamemory.transcription.confidence import get_confidence_color, get_confidence_legend
-from metamemory.hardware.detector import HardwareDetector
-from metamemory.hardware.recommender import ModelRecommender
-from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
-from metamemory.performance.benchmark import BenchmarkRunner, BenchmarkResult
-from metamemory.performance.wer import calculate_wer
+from meetandread.transcription.confidence import get_confidence_color, get_confidence_legend
+from meetandread.hardware.detector import HardwareDetector
+from meetandread.hardware.recommender import ModelRecommender
+from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
+from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
+from meetandread.performance.wer import calculate_wer
 
 import logging
 
@@ -736,7 +736,7 @@ class FloatingTranscriptPanel(QWidget):
     def _refresh_history(self) -> None:
         """Re-scan recordings and repopulate the history list."""
         try:
-            from metamemory.transcription.transcript_scanner import scan_recordings
+            from meetandread.transcription.transcript_scanner import scan_recordings
         except ImportError:
             logger.warning("transcript_scanner not available — cannot populate history")
             return
@@ -1038,7 +1038,7 @@ class FloatingTranscriptPanel(QWidget):
             new_name: New speaker name.
         """
         try:
-            from metamemory.speaker.signatures import VoiceSignatureStore
+            from meetandread.speaker.signatures import VoiceSignatureStore
         except ImportError:
             logger.warning(
                 "VoiceSignatureStore not available — skipping rename propagation"
@@ -1048,7 +1048,7 @@ class FloatingTranscriptPanel(QWidget):
         db_path = md_path.parent / "speaker_signatures.db"
         if not db_path.exists():
             # Try the default data directory
-            from metamemory.audio.storage.paths import get_recordings_dir
+            from meetandread.audio.storage.paths import get_recordings_dir
             default_db = get_recordings_dir() / "speaker_signatures.db"
             if default_db.exists():
                 db_path = default_db
@@ -1912,8 +1912,8 @@ class FloatingSettingsPanel(QWidget):
         # recording and is set to None on stop, so we can't rely on it.
         engine = None
         try:
-            from metamemory.transcription.engine import WhisperTranscriptionEngine
-            from metamemory.config import get_config
+            from meetandread.transcription.engine import WhisperTranscriptionEngine
+            from meetandread.config import get_config
             settings = get_config()
             model_size = settings.transcription.realtime_model_size
             engine = WhisperTranscriptionEngine(model_size=model_size)

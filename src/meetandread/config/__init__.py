@@ -1,10 +1,10 @@
-"""Configuration module for metamemory.
+"""Configuration module for meetandread.
 
 Provides type-safe settings management with JSON persistence, versioning,
 and smart defaults. Only user-modified settings are persisted.
 
 Quick Start:
-    >>> from metamemory.config import get_config, set_config, save_config
+    >>> from meetandread.config import get_config, set_config, save_config
     >>> 
     >>> # Get model size
     >>> model_size = get_config('model.realtime_model_size')
@@ -34,21 +34,21 @@ Functions:
     save_config: Save config if modified.
 """
 
-from metamemory.config.manager import (
+from meetandread.config.manager import (
     ConfigManager,
     get_config,
     get_config_manager,
     save_config,
     set_config,
 )
-from metamemory.config.models import (
+from meetandread.config.models import (
     AppSettings,
     HardwareSettings,
     ModelSettings,
     TranscriptionSettings,
     UISettings,
 )
-from metamemory.config.persistence import (
+from meetandread.config.persistence import (
     CURRENT_CONFIG_VERSION,
     ConfigVersion,
     SettingsPersistence,

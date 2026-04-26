@@ -6,7 +6,7 @@ can be recovered into a playable WAV file.
 
 Example:
     writer = PcmPartWriter.create(
-        recordings_dir=Path("~/Documents/metamemory"),
+        recordings_dir=Path("~/Documents/meetandread"),
         stem="recording-2026-02-01-143045",
         sample_rate=16000,
         channels=1,
@@ -27,7 +27,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
-from metamemory.audio.storage.paths import (
+from meetandread.audio.storage.paths import (
     get_recordings_dir,
     get_part_filename,
     get_part_metadata_filename,
@@ -97,7 +97,7 @@ class PcmPartWriter:
             channels: Number of channels (default: 1 for mono).
             sample_width_bytes: Bytes per sample (default: 2 for int16).
             recordings_dir: Optional override for recordings directory.
-                If None, uses ~/Documents/metamemory.
+                If None, uses ~/Documents/meetandread.
         
         Returns:
             A new PcmPartWriter ready to receive audio frames.

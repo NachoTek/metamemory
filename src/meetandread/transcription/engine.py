@@ -132,7 +132,7 @@ class WhisperTranscriptionEngine:
         else:  # macOS/Linux
             app_data = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local' / 'share'))
         
-        model_dir = app_data / 'metamemory' / 'models'
+        model_dir = app_data / 'meetandread' / 'models'
         model_dir.mkdir(parents=True, exist_ok=True)
         return model_dir
     

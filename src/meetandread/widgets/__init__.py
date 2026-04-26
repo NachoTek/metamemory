@@ -1,4 +1,4 @@
-"""Widget components for metamemory."""
+"""Widget components for meetandread."""
 
 from .main_widget import MeetAndReadWidget
 from .icons import create_app_icon, create_recording_icon

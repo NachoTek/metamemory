@@ -13,7 +13,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Set, Callable, List
 
-from metamemory.audio import (
+from meetandread.audio import (
     AudioSession,
     SessionConfig,
     SourceConfig,
@@ -21,11 +21,11 @@ from metamemory.audio import (
     SessionError,
     NoSourcesError,
 )
-from metamemory.audio.capture import AudioSourceError
-from metamemory.transcription.accumulating_processor import AccumulatingTranscriptionProcessor, SegmentResult
-from metamemory.transcription.transcript_store import TranscriptStore, Word
-from metamemory.transcription.post_processor import PostProcessingQueue, PostProcessStatus
-from metamemory.config.manager import ConfigManager
+from meetandread.audio.capture import AudioSourceError
+from meetandread.transcription.accumulating_processor import AccumulatingTranscriptionProcessor, SegmentResult
+from meetandread.transcription.transcript_store import TranscriptStore, Word
+from meetandread.transcription.post_processor import PostProcessingQueue, PostProcessStatus
+from meetandread.config.manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +298,7 @@ class RecordingController:
             
             # Schedule post-processing with stronger model
             if self._post_processor and self._last_wav_path and self._transcript_store:
-                from metamemory.audio.storage.paths import get_transcripts_dir
+                from meetandread.audio.storage.paths import get_transcripts_dir
                 print("DEBUG: Scheduling post-processing job...")
                 job = self._post_processor.schedule_post_process(
                     audio_file=self._last_wav_path,
@@ -494,7 +494,7 @@ class RecordingController:
             result: Post-processing result dict with 'transcript_path' key.
         """
         try:
-            from metamemory.performance.wer import calculate_wer
+            from meetandread.performance.wer import calculate_wer
 
             # Gather realtime text from the in-memory store
             realtime_text = ""
@@ -586,9 +586,9 @@ class RecordingController:
             wav_path: Path to the saved WAV file.
         """
         try:
-            from metamemory.speaker.diarizer import Diarizer
-            from metamemory.speaker.signatures import VoiceSignatureStore
-            from metamemory.audio.storage.paths import get_recordings_dir
+            from meetandread.speaker.diarizer import Diarizer
+            from meetandread.speaker.signatures import VoiceSignatureStore
+            from meetandread.audio.storage.paths import get_recordings_dir
         except ImportError:
             logger.warning(
                 "sherpa-onnx not installed — speaker diarization skipped. "
@@ -662,7 +662,7 @@ class RecordingController:
             result: A successful DiarizationResult with segments and matches.
         """
         assert self._transcript_store is not None
-        from metamemory.speaker.models import DiarizationResult
+        from meetandread.speaker.models import DiarizationResult
 
         words = self._transcript_store.get_all_words()
         if not words:
@@ -699,7 +699,7 @@ class RecordingController:
             return None
         
         try:
-            from metamemory.audio.storage.paths import get_transcripts_dir
+            from meetandread.audio.storage.paths import get_transcripts_dir
             
             # Create transcript filename based on WAV filename
             wav_stem = self._last_wav_path.stem
@@ -772,10 +772,10 @@ class RecordingController:
         sig = result.signatures[raw_label]
 
         # Save or update the voice signature in the store
-        from metamemory.audio.storage.paths import get_recordings_dir
+        from meetandread.audio.storage.paths import get_recordings_dir
         db_path = get_recordings_dir() / "speaker_signatures.db"
         try:
-            from metamemory.speaker.signatures import VoiceSignatureStore
+            from meetandread.speaker.signatures import VoiceSignatureStore
             with VoiceSignatureStore(db_path=db_path) as store:
                 existing = store.find_match(sig.embedding, threshold=0.99)
                 if existing and existing.name == name:
@@ -787,7 +787,7 @@ class RecordingController:
                 logger.info("Saved voice signature for '%s' (was %s)", name, raw_label)
 
                 # Update the in-memory result mapping
-                from metamemory.speaker.models import SpeakerMatch
+                from meetandread.speaker.models import SpeakerMatch
                 result.matches[raw_label] = SpeakerMatch(
                     name=name, score=1.0, confidence="high",
                 )

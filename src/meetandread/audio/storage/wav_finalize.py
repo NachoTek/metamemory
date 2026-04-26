@@ -8,7 +8,7 @@ import wave
 from pathlib import Path
 from typing import Optional
 
-from metamemory.audio.storage.pcm_part import load_metadata, PcmMetadata
+from meetandread.audio.storage.pcm_part import load_metadata, PcmMetadata
 
 
 def finalize_part_to_wav(
@@ -98,7 +98,7 @@ def finalize_stem(
     Raises:
         FileNotFoundError: If the part file or metadata doesn't exist.
     """
-    from metamemory.audio.storage.paths import get_part_filename, get_wav_filename
+    from meetandread.audio.storage.paths import get_part_filename, get_wav_filename
 
     part_path = recordings_dir / get_part_filename(stem)
     wav_path = recordings_dir / get_wav_filename(stem)

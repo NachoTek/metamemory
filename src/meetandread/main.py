@@ -1,5 +1,5 @@
 """
-metamemory - Windows Desktop Audio Transcription Widget
+meetandread - Windows Desktop Audio Transcription Widget
 Main application entry point.
 """
 
@@ -12,10 +12,10 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
 
-from metamemory.widgets.main_widget import MeetAndReadWidget
-from metamemory.audio import has_partial_recordings, recover_part_files, get_recordings_dir
-from metamemory.config import get_config
-from metamemory.hardware.recommender import ModelRecommender
+from meetandread.widgets.main_widget import MeetAndReadWidget
+from meetandread.audio import has_partial_recordings, recover_part_files, get_recordings_dir
+from meetandread.config import get_config
+from meetandread.hardware.recommender import ModelRecommender
 
 
 def check_critical_dlls():
@@ -76,12 +76,12 @@ class TeeOutput:
 def setup_logging():
     """Setup logging to both console and file with timestamped filename."""
     # Determine logs directory: under user Documents for both frozen and dev
-    logs_dir = Path.home() / "Documents" / "metamemory" / "logs"
+    logs_dir = Path.home() / "Documents" / "meetandread" / "logs"
     logs_dir.mkdir(exist_ok=True)
     
     # Create timestamped log filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"metamemory_{timestamp}.log"
+    log_file = logs_dir / f"meetandread_{timestamp}.log"
     
     # Configure logging
     logging.basicConfig(
@@ -207,7 +207,7 @@ def check_hardware_requirements():
         if not settings.hardware.auto_detect_on_startup:
             return
         
-        from metamemory.hardware.detector import HardwareDetector
+        from meetandread.hardware.detector import HardwareDetector
         detector = HardwareDetector()
         specs = detector.detect()
         
@@ -261,7 +261,7 @@ def main():
     """Application entry point."""
     # Setup logging first
     log_file = setup_logging()
-    logging.info("Starting metamemory")
+    logging.info("Starting meetandread")
     
     # Enable high DPI support
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -269,8 +269,8 @@ def main():
     )
     
     app = QApplication(sys.argv)
-    app.setApplicationName("metamemory")
-    app.setApplicationDisplayName("metamemory")
+    app.setApplicationName("meetandread")
+    app.setApplicationDisplayName("meetandread")
     
     # Setup signal handlers for graceful Ctrl+C shutdown
     setup_signal_handlers(app)
@@ -312,7 +312,7 @@ def main():
     widget = MeetAndReadWidget()
     
     # Create and wire system tray icon manager
-    from metamemory.widgets.tray_icon import TrayIconManager
+    from meetandread.widgets.tray_icon import TrayIconManager
     tray = TrayIconManager(widget=widget)
     tray.set_callbacks(
         on_toggle_recording=widget.toggle_recording,

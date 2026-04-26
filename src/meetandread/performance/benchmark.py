@@ -15,7 +15,7 @@ from typing import Callable, List, Optional
 
 import numpy as np
 
-from metamemory.performance.wer import calculate_wer, calculate_wer_details
+from meetandread.performance.wer import calculate_wer, calculate_wer_details
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ class BenchmarkRunner:
 
         # Resample to 16kHz if needed
         if framerate != 16000:
-            from metamemory.audio.resampler import Resampler
+            from meetandread.audio.resampler import Resampler
             audio = Resampler.resample(audio, framerate, 16000)
 
         return audio

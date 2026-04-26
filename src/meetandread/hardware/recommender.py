@@ -7,7 +7,7 @@ detected system specs. Integrates with ConfigManager to save recommendations.
 from dataclasses import dataclass
 from typing import List, Optional
 
-from metamemory.hardware.detector import HardwareDetector, SystemSpecs
+from meetandread.hardware.detector import HardwareDetector, SystemSpecs
 
 
 @dataclass
@@ -227,7 +227,7 @@ class ModelRecommender:
             RuntimeError: If config system is not available
         """
         try:
-            from metamemory.config import set_config, save_config
+            from meetandread.config import set_config, save_config
             
             if self._recommended_size is None:
                 self.detect_and_recommend()
@@ -257,7 +257,7 @@ class ModelRecommender:
             User's override model size if set, None otherwise
         """
         try:
-            from metamemory.config import get_config
+            from meetandread.config import get_config
             override = get_config("hardware.user_override_model")
             return override
         except (ImportError, ValueError):
@@ -279,7 +279,7 @@ class ModelRecommender:
             raise ValueError(f"Invalid model size: {size}. Valid: {list(MODEL_SPECS.keys())}")
         
         try:
-            from metamemory.config import set_config, save_config
+            from meetandread.config import set_config, save_config
             set_config("hardware.user_override_model", size)
             return save_config()
         except ImportError:

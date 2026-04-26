@@ -4,8 +4,8 @@ Provides system hardware detection using psutil and intelligent model size
 recommendations based on detected specs.
 """
 
-from metamemory.hardware.detector import HardwareDetector, SystemSpecs
-from metamemory.hardware.recommender import (
+from meetandread.hardware.detector import HardwareDetector, SystemSpecs
+from meetandread.hardware.recommender import (
     ModelRecommender,
     ModelInfo,
     recommend_model_size,

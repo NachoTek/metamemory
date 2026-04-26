@@ -5,16 +5,16 @@ Useful for testing the recording pipeline without running the full GUI.
 
 Examples:
     # Record from microphone for 5 seconds
-    python -m metamemory.audio.cli record --mic
+    python -m meetandread.audio.cli record --mic
 
     # Record from system audio for 10 seconds  
-    python -m metamemory.audio.cli record --system --seconds 10
+    python -m meetandread.audio.cli record --system --seconds 10
 
     # Record both mic and system simultaneously
-    python -m metamemory.audio.cli record --both
+    python -m meetandread.audio.cli record --both
 
     # Record using a fake audio file (for testing)
-    python -m metamemory.audio.cli record --fake /path/to/test.wav
+    python -m meetandread.audio.cli record --fake /path/to/test.wav
 """
 
 import argparse
@@ -26,21 +26,21 @@ from pathlib import Path
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
-from metamemory.audio import (
+from meetandread.audio import (
     AudioSession,
     SessionConfig,
     SourceConfig,
     list_mic_inputs,
     list_loopback_outputs,
 )
-from metamemory.audio.capture import AudioSourceError
+from meetandread.audio.capture import AudioSourceError
 
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog='metamemory.audio.cli',
-        description='Audio recording CLI for metamemory',
+        prog='meetandread.audio.cli',
+        description='Audio recording CLI for meetandread',
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -85,7 +85,7 @@ def create_parser() -> argparse.ArgumentParser:
     record_parser.add_argument(
         '--output-dir',
         type=str,
-        help='Output directory for recording (default: ~/Documents/metamemory)',
+        help='Output directory for recording (default: ~/Documents/meetandread)',
     )
     
     return parser

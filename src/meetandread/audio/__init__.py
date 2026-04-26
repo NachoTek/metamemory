@@ -1,10 +1,10 @@
-"""Audio capture and storage module for metamemory.
+"""Audio capture and storage module for meetandread.
 
 Provides high-level recording session management, low-level capture sources,
 and crash-safe storage primitives.
 
 High-level API (AudioSession):
-    from metamemory.audio import AudioSession, SessionConfig, SourceConfig
+    from meetandread.audio import AudioSession, SessionConfig, SourceConfig
     
     config = SessionConfig(sources=[SourceConfig(type='mic')])
     session = AudioSession()
@@ -12,7 +12,7 @@ High-level API (AudioSession):
     wav_path = session.stop()
 
 Low-level capture:
-    from metamemory.audio import MicSource, SystemSource, FakeAudioModule
+    from meetandread.audio import MicSource, SystemSource, FakeAudioModule
     
     source = MicSource()
     source.start()
@@ -20,7 +20,7 @@ Low-level capture:
     source.stop()
 
 Storage:
-    from metamemory.audio import PcmPartWriter, finalize_part_to_wav
+    from meetandread.audio import PcmPartWriter, finalize_part_to_wav
     
     writer = PcmPartWriter.create(stem="test")
     writer.write_frames_i16(audio_bytes)
@@ -29,7 +29,7 @@ Storage:
 """
 
 # Session management (high-level API)
-from metamemory.audio.session import (
+from meetandread.audio.session import (
     AudioSession,
     SessionConfig,
     SourceConfig,
@@ -40,7 +40,7 @@ from metamemory.audio.session import (
 )
 
 # Capture sources (low-level API)
-from metamemory.audio.capture import (
+from meetandread.audio.capture import (
     MicSource,
     SystemSource,
     FakeAudioModule,
@@ -54,7 +54,7 @@ from metamemory.audio.capture import (
 )
 
 # Storage primitives
-from metamemory.audio.storage import (
+from meetandread.audio.storage import (
     PcmPartWriter,
     PcmMetadata,
     load_metadata,

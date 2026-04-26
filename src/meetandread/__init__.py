@@ -1,4 +1,4 @@
-"""metamemory package.
+"""meetandread package.
 
 Zero information loss during conversations — Users stay fully present
 knowing every word is captured for AI agent processing.
@@ -17,5 +17,5 @@ except Exception:
 __author__ = "Tergi"
 
 # Public API exports
-# Config is accessible via metamemory.config submodule
-# from metamemory.config import get_config, set_config, save_config
+# Config is accessible via meetandread.config submodule
+# from meetandread.config import get_config, set_config, save_config

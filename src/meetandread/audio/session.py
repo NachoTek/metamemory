@@ -38,7 +38,7 @@ import numpy as np
 import soxr
 import queue
 
-from metamemory.audio.storage import (
+from meetandread.audio.storage import (
     PcmPartWriter,
     finalize_part_to_wav,
     finalize_stem,
@@ -46,7 +46,7 @@ from metamemory.audio.storage import (
     get_recordings_dir,
     get_wav_filename,
 )
-from metamemory.audio.capture import (
+from meetandread.audio.capture import (
     MicSource,
     SystemSource,
     FakeAudioModule,

@@ -3,7 +3,7 @@
 Provides directory resolution and filename generation for audio recordings.
 Uses platform-agnostic paths via pathlib.
 
-Directory layout under ~/Documents/metamemory/:
+Directory layout under ~/Documents/meetandread/:
     recordings/      — WAV files and PCM parts
     transcripts/     — Markdown transcript files
     speaker_signatures.db — Voice signature database (in recordings/)
@@ -16,7 +16,7 @@ from typing import Optional
 
 
 # Default subdirectory name within user's Documents folder
-DEFAULT_RECORDINGS_SUBDIR = "metamemory"
+DEFAULT_RECORDINGS_SUBDIR = "meetandread"
 
 # Subdirectory names within the base data directory
 RECORDINGS_SUBDIR = "recordings"

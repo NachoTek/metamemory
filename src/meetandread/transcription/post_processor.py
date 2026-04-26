@@ -58,9 +58,9 @@ import wave
 
 logger = logging.getLogger(__name__)
 
-from metamemory.config.models import TranscriptionSettings, AppSettings
-from metamemory.transcription.engine import WhisperTranscriptionEngine, TranscriptionSegment
-from metamemory.transcription.transcript_store import TranscriptStore, Word
+from meetandread.config.models import TranscriptionSettings, AppSettings
+from meetandread.transcription.engine import WhisperTranscriptionEngine, TranscriptionSegment
+from meetandread.transcription.transcript_store import TranscriptStore, Word
 
 
 class PostProcessStatus(Enum):

@@ -1,4 +1,4 @@
-"""Performance monitoring and benchmarking for MetaMemory.
+"""Performance monitoring and benchmarking for MeetAndRead.
 
 Provides:
 - Word Error Rate (WER) calculation via word-level Levenshtein distance
@@ -6,9 +6,9 @@ Provides:
 - Benchmark runner for transcription accuracy and latency measurement
 """
 
-from metamemory.performance.wer import calculate_wer, calculate_wer_details
-from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
-from metamemory.performance.benchmark import BenchmarkRunner, BenchmarkResult
+from meetandread.performance.wer import calculate_wer, calculate_wer_details
+from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
+from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
 
 __all__ = [
     "calculate_wer",

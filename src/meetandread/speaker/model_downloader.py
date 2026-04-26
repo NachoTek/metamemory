@@ -1,6 +1,6 @@
 """Model downloader for sherpa-onnx speaker diarization models.
 
-Downloads and caches the required ONNX models to ~/.cache/metamemory/diarization-models/:
+Downloads and caches the required ONNX models to ~/.cache/meetandread/diarization-models/:
   - pyannote-segmentation-3.0 (speaker segmentation)
   - 3dspeaker CAM++ / eres2net (speaker embedding extraction)
 
@@ -36,7 +36,7 @@ EMBEDDING_URL = (
 )
 
 # Default cache directory
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "metamemory" / "diarization-models"
+DEFAULT_CACHE_DIR = Path.home() / ".cache" / "meetandread" / "diarization-models"
 
 
 def get_cache_dir(cache_dir: Optional[Path] = None) -> Path:
@@ -44,7 +44,7 @@ def get_cache_dir(cache_dir: Optional[Path] = None) -> Path:
 
     Args:
         cache_dir: Override the default cache location. If None, uses
-            ~/.cache/metamemory/diarization-models/.
+            ~/.cache/meetandread/diarization-models/.
 
     Returns:
         Path to the cache directory.

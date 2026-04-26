@@ -10,7 +10,7 @@ Key components:
 - recovery: Detect and recover leftover partial recordings
 """
 
-from metamemory.audio.storage.paths import (
+from meetandread.audio.storage.paths import (
     get_recordings_dir,
     get_transcripts_dir,
     new_recording_stem,
@@ -18,16 +18,16 @@ from metamemory.audio.storage.paths import (
     get_part_metadata_filename,
     get_wav_filename,
 )
-from metamemory.audio.storage.pcm_part import (
+from meetandread.audio.storage.pcm_part import (
     PcmPartWriter,
     PcmMetadata,
     load_metadata,
 )
-from metamemory.audio.storage.wav_finalize import (
+from meetandread.audio.storage.wav_finalize import (
     finalize_part_to_wav,
     finalize_stem,
 )
-from metamemory.audio.storage.recovery import (
+from meetandread.audio.storage.recovery import (
     find_part_files,
     recover_part_file,
     recover_part_files,

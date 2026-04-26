@@ -1,4 +1,4 @@
-"""Audio capture module for metamemory.
+"""Audio capture module for meetandread.
 
 Provides device enumeration and audio capture sources (mic, system, fake).
 """

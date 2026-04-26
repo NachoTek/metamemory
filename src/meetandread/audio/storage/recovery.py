@@ -8,8 +8,8 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Callable
 
-from metamemory.audio.storage.pcm_part import load_metadata
-from metamemory.audio.storage.wav_finalize import finalize_part_to_wav
+from meetandread.audio.storage.pcm_part import load_metadata
+from meetandread.audio.storage.wav_finalize import finalize_part_to_wav
 
 
 def find_part_files(recordings_dir: Path) -> List[Path]:
@@ -25,7 +25,7 @@ def find_part_files(recordings_dir: Path) -> List[Path]:
 
     Example:
         >>> from pathlib import Path
-        >>> parts = find_part_files(Path("~/Documents/metamemory"))
+        >>> parts = find_part_files(Path("~/Documents/meetandread"))
         >>> for part in parts:
         ...     print(f"Found partial: {part.name}")
     """
@@ -117,7 +117,7 @@ def recover_part_files(
         ...     print(f"Recovering {i}/{total}: {file}")
         >>>
         >>> recovered = recover_part_files(
-        ...     Path("~/Documents/metamemory"),
+        ...     Path("~/Documents/meetandread"),
         ...     progress_callback=on_progress,
         ... )
         >>> print(f"Recovered {len(recovered)} files")

@@ -7,7 +7,7 @@ setting, and saving application settings with smart defaults tracking.
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from metamemory.config.models import (
+from meetandread.config.models import (
     AppSettings,
     HardwareSettings,
     ModelSettings,
@@ -15,7 +15,7 @@ from metamemory.config.models import (
     TranscriptionSettings,
     UISettings
 )
-from metamemory.config.persistence import SettingsPersistence
+from meetandread.config.persistence import SettingsPersistence
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class ConfigManager:
     Settings auto-load on first access and can be persisted with save().
     
     Example:
-        >>> from metamemory.config.manager import ConfigManager
+        >>> from meetandread.config.manager import ConfigManager
         >>> cm = ConfigManager()
         >>> cm.get('model.realtime_model_size')
         'auto'
@@ -324,7 +324,7 @@ def get_config(key_path: Optional[str] = None) -> Any:
         Config value or AppSettings.
     
     Example:
-        >>> from metamemory.config import get_config
+        >>> from meetandread.config import get_config
         >>> model_size = get_config('model.realtime_model_size')
     """
     return get_config_manager().get(key_path)
@@ -338,7 +338,7 @@ def set_config(key_path: str, value: Any) -> None:
         value: Value to set.
     
     Example:
-        >>> from metamemory.config import set_config
+        >>> from meetandread.config import set_config
         >>> set_config('model.realtime_model_size', 'small')
     """
     get_config_manager().set(key_path, value)
@@ -351,7 +351,7 @@ def save_config() -> bool:
         True if saved or not dirty, False on error.
     
     Example:
-        >>> from metamemory.config import save_config
+        >>> from meetandread.config import save_config
         >>> save_config()
     """
     return get_config_manager().save()

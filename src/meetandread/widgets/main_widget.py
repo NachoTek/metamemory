@@ -1,5 +1,5 @@
 """
-Main metamemory widget implementation using QGraphicsView with floating panels.
+Main meetandread widget implementation using QGraphicsView with floating panels.
 
 This widget provides a borderless, always-on-top interface with:
 - Record button as main body
@@ -24,13 +24,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QTime, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QBrush, QPen, QFont, QPainter, QLinearGradient
 
-from metamemory.recording import RecordingController, ControllerState, ControllerError
-from metamemory.transcription.confidence import get_confidence_color, get_distortion_intensity
-from metamemory.transcription.transcript_store import Word
-from metamemory.transcription.accumulating_processor import SegmentResult
-from metamemory.config import get_config, set_config, save_config, AppSettings
-from metamemory.hardware.recommender import ModelRecommender, get_model_info
-from metamemory.widgets.floating_panels import FloatingTranscriptPanel, FloatingSettingsPanel
+from meetandread.recording import RecordingController, ControllerState, ControllerError
+from meetandread.transcription.confidence import get_confidence_color, get_distortion_intensity
+from meetandread.transcription.transcript_store import Word
+from meetandread.transcription.accumulating_processor import SegmentResult
+from meetandread.config import get_config, set_config, save_config, AppSettings
+from meetandread.hardware.recommender import ModelRecommender, get_model_info
+from meetandread.widgets.floating_panels import FloatingTranscriptPanel, FloatingSettingsPanel
 import time as _time
 
 
@@ -625,7 +625,7 @@ to avoid clipping issues and enable proper text rendering.
         default per failure-mode spec).
         """
         try:
-            from metamemory.audio.capture.devices import get_default_loopback_device
+            from meetandread.audio.capture.devices import get_default_loopback_device
             if get_default_loopback_device() is None:
                 self.system_lobe.set_unavailable(True)
                 logging.info("System audio lobe marked unavailable — no loopback device")

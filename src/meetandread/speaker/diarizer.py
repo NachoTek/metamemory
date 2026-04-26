@@ -14,8 +14,8 @@ from typing import Optional
 
 import numpy as np
 
-from metamemory.speaker.model_downloader import ensure_all_models
-from metamemory.speaker.models import (
+from meetandread.speaker.model_downloader import ensure_all_models
+from meetandread.speaker.models import (
     DiarizationResult,
     SpeakerSegment,
     VoiceSignature,

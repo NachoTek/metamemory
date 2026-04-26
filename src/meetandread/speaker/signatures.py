@@ -14,7 +14,7 @@ from typing import List, Optional
 
 import numpy as np
 
-from metamemory.speaker.models import SpeakerMatch, SpeakerProfile
+from meetandread.speaker.models import SpeakerMatch, SpeakerProfile
 
 logger = logging.getLogger(__name__)
 

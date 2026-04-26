@@ -133,7 +133,7 @@ class AccumulatingTranscriptionProcessor:
     
     def load_model(self, progress_callback: Optional[Callable[[int], None]] = None) -> None:
         """Load the Whisper model."""
-        from metamemory.transcription.engine import WhisperTranscriptionEngine
+        from meetandread.transcription.engine import WhisperTranscriptionEngine
         
         print(f"DEBUG: Loading {self.model_size} model for accumulating transcription...")
         self._engine = WhisperTranscriptionEngine(

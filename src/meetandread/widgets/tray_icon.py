@@ -1,4 +1,4 @@
-"""System tray icon manager for metamemory.
+"""System tray icon manager for meetandread.
 
 Provides TrayIconManager — a class that creates and manages a QSystemTrayIcon
 with a state-aware context menu (Start/Stop Recording, Show/Hide Widget, Exit)
@@ -11,8 +11,8 @@ from typing import Optional, Callable
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction, QIcon
 
-from metamemory.recording.controller import ControllerState
-from metamemory.widgets.icons import create_app_icon, create_recording_icon
+from meetandread.recording.controller import ControllerState
+from meetandread.widgets.icons import create_app_icon, create_recording_icon
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class TrayIconManager:
 
         # Create tray icon
         self._tray = QSystemTrayIcon(self._default_icon)
-        self._tray.setToolTip("metamemory")
+        self._tray.setToolTip("meetandread")
 
         # Current state
         self._recording_state: ControllerState = ControllerState.IDLE
@@ -137,15 +137,15 @@ class TrayIconManager:
 
         # Update tooltip
         if state == ControllerState.RECORDING:
-            self._tray.setToolTip("metamemory — Recording")
+            self._tray.setToolTip("meetandread — Recording")
         elif state == ControllerState.STARTING:
-            self._tray.setToolTip("metamemory — Starting…")
+            self._tray.setToolTip("meetandread — Starting…")
         elif state == ControllerState.STOPPING:
-            self._tray.setToolTip("metamemory — Stopping…")
+            self._tray.setToolTip("meetandread — Stopping…")
         elif state == ControllerState.ERROR:
-            self._tray.setToolTip("metamemory — Error")
+            self._tray.setToolTip("meetandread — Error")
         else:
-            self._tray.setToolTip("metamemory")
+            self._tray.setToolTip("meetandread")
 
         # Update menu items
         self._update_menu_items()
