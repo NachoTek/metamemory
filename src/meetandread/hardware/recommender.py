@@ -1,7 +1,7 @@
 """Model recommendation engine based on hardware specifications.
 
-Provides intelligent model size recommendations (tiny/base/small) based on
-detected system specs. Integrates with ConfigManager to save recommendations.
+Provides intelligent model size recommendations (tiny/base/small/medium/large)
+based on detected system specs. Integrates with ConfigManager to save recommendations.
 """
 
 from dataclasses import dataclass
@@ -48,8 +48,22 @@ MODEL_SPECS = {
         size="small",
         ram_required_gb=1.5,  # ~1.5GB
         description="Small model - recommended for < 2s latency with best accuracy",
-        accuracy_rating="Best",
+        accuracy_rating="Very Good",
         latency_profile="Moderate",
+    ),
+    "medium": ModelInfo(
+        size="medium",
+        ram_required_gb=2.0,  # ~2GB
+        description="Medium model — high accuracy, slower processing",
+        accuracy_rating="High",
+        latency_profile="Slow",
+    ),
+    "large": ModelInfo(
+        size="large",
+        ram_required_gb=3.0,  # ~3GB
+        description="Large model — best accuracy, slowest processing",
+        accuracy_rating="Best",
+        latency_profile="Slowest",
     ),
 }
 
@@ -59,7 +73,7 @@ def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> s
     
     Recommendation algorithm optimized for real-time transcription (< 2s latency):
     - For real-time: Always recommend "tiny" (fastest, ~0.5-1s latency)
-    - For post-processing: Can use larger models (base/small)
+    - For post-processing: Can use larger models (base/small/medium/large)
     
     Current approach prioritizes real-time performance over accuracy:
     - If RAM < 6GB OR CPU < 4 cores: recommend "tiny" (required for low-end)
@@ -73,7 +87,7 @@ def recommend_model_size(specs: SystemSpecs, prefer_accuracy: bool = False) -> s
         prefer_accuracy: If True, may recommend larger model if borderline
         
     Returns:
-        Recommended model size: 'tiny', 'base', or 'small'
+        Recommended model size: 'tiny', 'base', 'small', 'medium', or 'large'
         
     Example:
         >>> specs = SystemSpecs(
@@ -105,7 +119,7 @@ def get_model_info(size: str) -> ModelInfo:
     """Get specifications for a model size.
     
     Args:
-        size: Model size ('tiny', 'base', 'small')
+        size: Model size ('tiny', 'base', 'small', 'medium', 'large')
         
     Returns:
         ModelInfo for the specified size
