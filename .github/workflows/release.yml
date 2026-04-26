@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install -e ".[dev]"
+
+      - run: python -m pytest -m "not slow" --tb=short -q
+
+  release:
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install -e .
+
+      - run: pip install pyinstaller
+
+      - run: pyinstaller meetandread.spec --noconfirm
+
+      - run: Compress-Archive -Path dist/meetandread -DestinationPath meetandread-${{ github.ref_name }}.zip
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_notes: true
+          files: meetandread-${{ github.ref_name }}.zip
