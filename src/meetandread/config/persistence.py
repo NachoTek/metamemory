@@ -32,11 +32,12 @@ class ConfigVersion:
 
 
 # Current config version - bump this when schema changes
-CURRENT_CONFIG_VERSION = 1
+CURRENT_CONFIG_VERSION = 2
 
 # Version history for migrations
 VERSION_HISTORY: Dict[int, ConfigVersion] = {
-    1: ConfigVersion(1, "Initial schema with model, transcription, hardware, UI settings")
+    1: ConfigVersion(1, "Initial schema with model, transcription, hardware, UI settings"),
+    2: ConfigVersion(2, "Added benchmark_history to TranscriptionSettings for per-model WER tracking")
 }
 
 
@@ -306,10 +307,12 @@ class SettingsPersistence:
                 config_dict["ui"] = {}
         
         # Future migrations go here:
-        # elif from_version == 1 and to_version == 2:
-        #     # Example: rename a field
-        #     if "old_field_name" in config_dict:
-        #         config_dict["new_field_name"] = config_dict.pop("old_field_name")
+        if from_version == 1 and to_version == 2:
+            # Add benchmark_history to transcription section for per-model WER tracking
+            transcription = config_dict.get("transcription", {})
+            if "benchmark_history" not in transcription:
+                transcription["benchmark_history"] = {}
+            config_dict["transcription"] = transcription
         
         return config_dict
     

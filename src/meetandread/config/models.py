@@ -93,6 +93,10 @@ class TranscriptionSettings:
         default=True,
         metadata={"description": "Enable post-processing with stronger model after recording"}
     )
+    benchmark_history: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict,
+        metadata={"description": "Per-model benchmark results: {model_size: {wer: float, timestamp: str}}"}
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -108,7 +112,8 @@ class TranscriptionSettings:
             agreement_threshold=data.get("agreement_threshold", cls.agreement_threshold),
             realtime_model_size=data.get("realtime_model_size", cls.realtime_model_size),
             postprocess_model_size=data.get("postprocess_model_size", cls.postprocess_model_size),
-            enable_postprocessing=data.get("enable_postprocessing", cls.enable_postprocessing)
+            enable_postprocessing=data.get("enable_postprocessing", cls.enable_postprocessing),
+            benchmark_history=data.get("benchmark_history", {})
         )
 
 
@@ -280,7 +285,7 @@ class AppSettings:
         ui: UI behavior and appearance settings.
     """
     config_version: int = field(
-        default=1,
+        default=2,
         metadata={"description": "Configuration schema version for migrations"}
     )
     model: ModelSettings = field(default_factory=ModelSettings)
