@@ -18,6 +18,43 @@ from metamemory.config import get_config
 from metamemory.hardware.recommender import ModelRecommender
 
 
+def check_critical_dlls():
+    """Check that critical native DLLs can be loaded in frozen exe mode.
+
+    Only runs when ``sys.frozen`` is True (i.e. inside a PyInstaller bundle).
+    In development mode missing DLLs surface naturally as ImportError at import
+    time, so the check is skipped.
+
+    Each library is tested in its own try/except so the user sees *which*
+    library failed, not a generic "something is missing" message.
+    """
+    if not getattr(sys, 'frozen', False):
+        return
+
+    critical_libs = [
+        ('pywhispercpp', 'pywhispercpp'),
+        ('sounddevice', 'sounddevice'),
+    ]
+
+    for name, module in critical_libs:
+        try:
+            __import__(module)
+        except ImportError as exc:
+            msg = (
+                f"Required library '{name}' could not be loaded.\n\n"
+                f"Error details: {exc}\n\n"
+                f"The application cannot start without this component. "
+                f"Please reinstall meetandread."
+            )
+            logging.error(f"DLL check failed for {name}: {exc}")
+            QMessageBox.critical(
+                None,
+                "meetandread — Missing Component",
+                msg,
+            )
+            sys.exit(1)
+
+
 class TeeOutput:
     """Redirects stdout to both console and log file."""
     def __init__(self, logger):
@@ -235,6 +272,9 @@ def main():
     
     # Setup signal handlers for graceful Ctrl+C shutdown
     setup_signal_handlers(app)
+    
+    # Check critical native DLLs are loadable (frozen exe only)
+    check_critical_dlls()
     
     # Run hardware detection on first startup (if auto-detect enabled)
     try:
