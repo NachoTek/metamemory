@@ -1,6 +1,6 @@
 """Regression test for CLI fake recording duration.
 
-Verifies that `python -m metamemory.audio.cli record --fake <wav> --seconds N`
+Verifies that `python -m meetandread.audio.cli record --fake <wav> --seconds N`
 produces an output WAV of approximately N seconds, even when the fake source
 can emit audio faster than real-time.
 """
@@ -80,7 +80,7 @@ def test_cli_fake_seconds_truncates_output(tmp_path: Path) -> None:
     # Run CLI: 9s input + --seconds 5 should output ~5s
     repo_root = Path(__file__).parent.parent
     cmd = [
-        sys.executable, '-m', 'metamemory.audio.cli',
+        sys.executable, '-m', 'meetandread.audio.cli',
         'record',
         '--fake', str(input_wav),
         '--seconds', '5',

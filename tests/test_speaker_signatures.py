@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from metamemory.speaker.models import SpeakerMatch, SpeakerProfile
-from metamemory.speaker.signatures import VoiceSignatureStore
+from meetandread.speaker.models import SpeakerMatch, SpeakerProfile
+from meetandread.speaker.signatures import VoiceSignatureStore
 
 
 # ---------------------------------------------------------------------------

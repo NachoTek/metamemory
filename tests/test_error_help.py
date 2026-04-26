@@ -9,7 +9,7 @@ from PyQt6.QtGui import QFontMetrics, QFont
 # ── get_error_help_text tests ──
 
 def test_help_for_no_source_selected():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("No audio source selected")
     assert result is not None
     assert "lobe" in result.lower()
@@ -17,13 +17,13 @@ def test_help_for_no_source_selected():
 
 
 def test_help_for_no_mic_selected():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("No microphone selected")
     assert result is not None
 
 
 def test_help_for_transcription_failure():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Transcription failed unexpectedly")
     assert result is not None
     assert "Whisper" in result
@@ -31,46 +31,46 @@ def test_help_for_transcription_failure():
 
 
 def test_help_for_transcription_error():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Transcription error occurred")
     assert result is not None
     assert "model" in result.lower()
 
 
 def test_help_for_device_not_found():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Microphone not detected")
     assert result is not None
     assert "connected" in result.lower()
 
 
 def test_help_for_speaker_not_available():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Speaker not available")
     assert result is not None
 
 
 def test_help_for_memory_low():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Memory low on system")
     assert result is not None
     assert "Close" in result
 
 
 def test_help_for_out_of_memory():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Out of memory during transcription")
     assert result is not None
 
 
 def test_help_for_unknown_message():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("Something completely unrelated happened")
     assert result is None
 
 
 def test_help_case_insensitive():
-    from metamemory.widgets.main_widget import get_error_help_text
+    from meetandread.widgets.main_widget import get_error_help_text
     result = get_error_help_text("TRANSCRIPTION FAILED")
     assert result is not None
     result2 = get_error_help_text("No Source Selected")
@@ -82,7 +82,7 @@ def test_help_case_insensitive():
 @pytest.fixture
 def indicator(qtbot):
     """Create an ErrorIndicatorItem for testing."""
-    from metamemory.widgets.main_widget import ErrorIndicatorItem
+    from meetandread.widgets.main_widget import ErrorIndicatorItem
     parent = MagicMock()
     item = ErrorIndicatorItem(parent)
     return item
@@ -181,8 +181,8 @@ def test_help_expansion_notifies_parent(indicator):
 
 def test_show_error_uses_8s_timer(qtbot):
     """_show_error should use 8000ms auto-hide timer."""
-    from metamemory.widgets.main_widget import MeetAndReadWidget
-    with patch('metamemory.widgets.main_widget.MeetAndReadWidget.__init__', return_value=None):
+    from meetandread.widgets.main_widget import MeetAndReadWidget
+    with patch('meetandread.widgets.main_widget.MeetAndReadWidget.__init__', return_value=None):
         # We need a minimal widget — just test the timer mechanism
         pass
 
@@ -191,7 +191,7 @@ def test_show_error_uses_8s_timer(qtbot):
     from unittest.mock import call
 
     # Verify 8000ms value by testing _show_error behavior
-    from metamemory.widgets.main_widget import MeetAndReadWidget
+    from meetandread.widgets.main_widget import MeetAndReadWidget
 
     # Mock __init__ to avoid full widget construction
     orig_init = MeetAndReadWidget.__init__
@@ -202,7 +202,7 @@ def test_show_error_uses_8s_timer(qtbot):
         widget._error_hide_timer = None
 
         # Patch QTimer to track calls
-        with patch('metamemory.widgets.main_widget.QTimer') as MockTimer:
+        with patch('meetandread.widgets.main_widget.QTimer') as MockTimer:
             mock_timer_instance = MagicMock()
             MockTimer.return_value = mock_timer_instance
 
@@ -216,7 +216,7 @@ def test_show_error_uses_8s_timer(qtbot):
 
 def test_expanding_help_cancels_timer():
     """Expanding help should stop the auto-hide timer."""
-    from metamemory.widgets.main_widget import MeetAndReadWidget
+    from meetandread.widgets.main_widget import MeetAndReadWidget
 
     orig_init = MeetAndReadWidget.__init__
     try:
@@ -235,7 +235,7 @@ def test_expanding_help_cancels_timer():
 
 def test_collapsing_help_restarts_timer():
     """Collapsing help should restart the auto-hide timer with 8s."""
-    from metamemory.widgets.main_widget import MeetAndReadWidget
+    from meetandread.widgets.main_widget import MeetAndReadWidget
 
     orig_init = MeetAndReadWidget.__init__
     try:
@@ -244,7 +244,7 @@ def test_collapsing_help_restarts_timer():
         widget._error_indicator = MagicMock()
         widget._error_hide_timer = MagicMock()
 
-        with patch('metamemory.widgets.main_widget.QTimer') as MockTimer:
+        with patch('meetandread.widgets.main_widget.QTimer') as MockTimer:
             mock_timer_instance = MagicMock()
             MockTimer.return_value = mock_timer_instance
 
@@ -258,7 +258,7 @@ def test_collapsing_help_restarts_timer():
 
 def test_on_controller_error_passes_recoverable():
     """_on_controller_error should pass is_recoverable to _show_error."""
-    from metamemory.widgets.main_widget import MeetAndReadWidget
+    from meetandread.widgets.main_widget import MeetAndReadWidget
 
     orig_init = MeetAndReadWidget.__init__
     try:

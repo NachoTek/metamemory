@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from metamemory.config import (
+from meetandread.config import (
     AppSettings,
     ConfigManager,
     HardwareSettings,
@@ -581,7 +581,7 @@ class TestConfigIntegration:
     
     def test_convenience_functions(self, temp_config_dir):
         """Test module-level convenience functions."""
-        import metamemory.config.manager as manager_module
+        import meetandread.config.manager as manager_module
         
         # Reset singleton and module-level instance
         ConfigManager._instance = None

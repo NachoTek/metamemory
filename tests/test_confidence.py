@@ -8,7 +8,7 @@ import pytest
 import sys
 sys.path.insert(0, 'src')
 
-from metamemory.transcription.confidence import (
+from meetandread.transcription.confidence import (
     normalize_confidence,
     get_confidence_level,
     get_confidence_color,

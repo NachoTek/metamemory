@@ -12,8 +12,8 @@ import pytest
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication
 
-from metamemory.widgets.main_widget import ToggleLobeItem, MeetAndReadWidget
-from metamemory.recording import ControllerState
+from meetandread.widgets.main_widget import ToggleLobeItem, MeetAndReadWidget
+from meetandread.recording import ControllerState
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +151,8 @@ class TestToggleLobePulse:
 class TestLobeTogglePersistence:
     """_on_lobe_toggled persists sources to config."""
 
-    @patch("metamemory.widgets.main_widget.save_config")
-    @patch("metamemory.widgets.main_widget.set_config")
+    @patch("meetandread.widgets.main_widget.save_config")
+    @patch("meetandread.widgets.main_widget.set_config")
     def test_toggle_mic_persists(self, mock_set, mock_save):
         widget = MagicMock(spec=MeetAndReadWidget)
         mic = _make_lobe()
@@ -167,8 +167,8 @@ class TestLobeTogglePersistence:
         mock_set.assert_called_once_with('ui.audio_sources', ['mic'])
         mock_save.assert_called_once()
 
-    @patch("metamemory.widgets.main_widget.save_config")
-    @patch("metamemory.widgets.main_widget.set_config")
+    @patch("meetandread.widgets.main_widget.save_config")
+    @patch("meetandread.widgets.main_widget.set_config")
     def test_toggle_both_persists(self, mock_set, mock_save):
         widget = MagicMock(spec=MeetAndReadWidget)
         mic = _make_lobe()
@@ -190,7 +190,7 @@ class TestLobeTogglePersistence:
 class TestRestoreAudioSources:
     """_restore_audio_sources sets lobe states from config."""
 
-    @patch("metamemory.widgets.main_widget.get_config", return_value=['mic'])
+    @patch("meetandread.widgets.main_widget.get_config", return_value=['mic'])
     def test_restore_mic_only(self, mock_get):
         widget = MagicMock(spec=MeetAndReadWidget)
         widget.mic_lobe = _make_lobe()
@@ -199,7 +199,7 @@ class TestRestoreAudioSources:
         assert widget.mic_lobe.is_active is True
         assert widget.system_lobe.is_active is False
 
-    @patch("metamemory.widgets.main_widget.get_config", return_value=['mic', 'system'])
+    @patch("meetandread.widgets.main_widget.get_config", return_value=['mic', 'system'])
     def test_restore_both(self, mock_get):
         widget = MagicMock(spec=MeetAndReadWidget)
         widget.mic_lobe = _make_lobe()
@@ -208,7 +208,7 @@ class TestRestoreAudioSources:
         assert widget.mic_lobe.is_active is True
         assert widget.system_lobe.is_active is True
 
-    @patch("metamemory.widgets.main_widget.get_config", return_value=None)
+    @patch("meetandread.widgets.main_widget.get_config", return_value=None)
     def test_restore_none_first_launch(self, mock_get):
         widget = MagicMock(spec=MeetAndReadWidget)
         widget.mic_lobe = _make_lobe()
@@ -237,15 +237,15 @@ class TestNoSourcePulse:
         mock_timer = MagicMock()
         mock_timer.isActive.return_value = True
 
-        with patch("metamemory.widgets.main_widget.QTimer", return_value=mock_timer):
+        with patch("meetandread.widgets.main_widget.QTimer", return_value=mock_timer):
             MeetAndReadWidget._pulse_lobes(widget)
 
         assert widget._pulse_timer is mock_timer
         mock_timer.start.assert_called_once_with(100)
 
-    @patch("metamemory.widgets.main_widget.save_config")
-    @patch("metamemory.widgets.main_widget.set_config")
-    @patch("metamemory.widgets.main_widget.get_config", return_value=None)
+    @patch("meetandread.widgets.main_widget.save_config")
+    @patch("meetandread.widgets.main_widget.set_config")
+    @patch("meetandread.widgets.main_widget.get_config", return_value=None)
     def test_start_recording_no_sources_triggers_pulse(self, mock_get, mock_set, mock_save):
         """Full start_recording flow with no sources activates pulse timer."""
         widget = MagicMock(spec=MeetAndReadWidget)
@@ -329,14 +329,14 @@ class TestRecordingLockWiring:
 class TestSystemAudioProbe:
     """_probe_system_audio_availability marks lobe unavailable when no device."""
 
-    @patch("metamemory.audio.capture.devices.get_default_loopback_device", return_value=None)
+    @patch("meetandread.audio.capture.devices.get_default_loopback_device", return_value=None)
     def test_no_device_marks_unavailable(self, mock_probe, qapp):
         widget = MagicMock(spec=MeetAndReadWidget)
         widget.system_lobe = _make_lobe()
         MeetAndReadWidget._probe_system_audio_availability(widget)
         assert widget.system_lobe._is_unavailable is True
 
-    @patch("metamemory.audio.capture.devices.get_default_loopback_device",
+    @patch("meetandread.audio.capture.devices.get_default_loopback_device",
            return_value={"name": "Speakers (Loopback)"})
     def test_device_found_stays_available(self, mock_probe, qapp):
         widget = MagicMock(spec=MeetAndReadWidget)
@@ -344,7 +344,7 @@ class TestSystemAudioProbe:
         MeetAndReadWidget._probe_system_audio_availability(widget)
         assert widget.system_lobe._is_unavailable is False
 
-    @patch("metamemory.audio.capture.devices.get_default_loopback_device",
+    @patch("meetandread.audio.capture.devices.get_default_loopback_device",
            side_effect=Exception("import failed"))
     def test_probe_exception_stays_available(self, mock_probe, qapp):
         """On probe error, stay optimistic (lobe stays available)."""

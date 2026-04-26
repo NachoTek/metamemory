@@ -13,12 +13,12 @@ from typing import List, Optional
 
 import pytest
 
-from metamemory.transcription.transcript_scanner import (
+from meetandread.transcription.transcript_scanner import (
     RecordingMeta,
     parse_metadata,
     scan_recordings,
 )
-from metamemory.transcription.transcript_store import TranscriptStore, Word
+from meetandread.transcription.transcript_store import TranscriptStore, Word
 
 
 # ---------------------------------------------------------------------------

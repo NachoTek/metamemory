@@ -18,11 +18,11 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from metamemory.transcription.engine import WhisperTranscriptionEngine
-from metamemory.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
-from metamemory.transcription.transcript_store import TranscriptStore, Word
-from metamemory.transcription.audio_buffer import AudioRingBuffer
-from metamemory.config.models import AppSettings, TranscriptionSettings
+from meetandread.transcription.engine import WhisperTranscriptionEngine
+from meetandread.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
+from meetandread.transcription.transcript_store import TranscriptStore, Word
+from meetandread.transcription.audio_buffer import AudioRingBuffer
+from meetandread.config.models import AppSettings, TranscriptionSettings
 
 
 class TestTranscriptionPipeline:

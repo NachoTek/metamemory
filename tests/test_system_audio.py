@@ -21,13 +21,13 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from metamemory.audio import (
+from meetandread.audio import (
     AudioSession,
     SessionConfig,
     SourceConfig,
 )
-from metamemory.audio.capture import SystemSource
-from metamemory.audio.session import NoSourcesError
+from meetandread.audio.capture import SystemSource
+from meetandread.audio.session import NoSourcesError
 
 
 # ---------------------------------------------------------------------------
@@ -75,17 +75,17 @@ class TestSystemSourceUnavailable:
         with patch.dict(
             "sys.modules",
             {
-                "metamemory.audio.capture.pyaudiowpatch_source": mock_pawp_mod,
+                "meetandread.audio.capture.pyaudiowpatch_source": mock_pawp_mod,
             },
         ), patch(
-            "metamemory.audio.capture.sounddevice_source._HAS_PYAUDIOWPATCH_attr",
+            "meetandread.audio.capture.sounddevice_source._HAS_PYAUDIOWPATCH_attr",
             False,
             create=True,
         ):
             # Simulate the import path inside SystemSource.__init__
             # by patching the module-level import chain
             with patch(
-                "metamemory.audio.capture.sounddevice_source.PyAudioWPatchSource",
+                "meetandread.audio.capture.sounddevice_source.PyAudioWPatchSource",
                 None,
                 create=True,
             ):
@@ -270,13 +270,13 @@ class TestSystemSourceMetadata:
         with patch.dict(
             "sys.modules", {"pyaudiowpatch": mock_pawp}
         ), patch(
-            "metamemory.audio.capture.pyaudiowpatch_source._HAS_PYAUDIOWPATCH",
+            "meetandread.audio.capture.pyaudiowpatch_source._HAS_PYAUDIOWPATCH",
             True,
         ), patch(
-            "metamemory.audio.capture.pyaudiowpatch_source.PyAudioWPatchSource",
+            "meetandread.audio.capture.pyaudiowpatch_source.PyAudioWPatchSource",
             mock_pawp_source_class,
         ), patch(
-            "metamemory.audio.capture.pyaudiowpatch_source.pyaudiowpatch",
+            "meetandread.audio.capture.pyaudiowpatch_source.pyaudiowpatch",
             mock_pawp,
             create=True,
         ):
@@ -359,7 +359,7 @@ class TestRealLoopbackCapture:
         and verify frames have expected format (float32, correct channels)."""
         import pyaudiowpatch as paw
 
-        from metamemory.audio.capture.pyaudiowpatch_source import PyAudioWPatchSource
+        from meetandread.audio.capture.pyaudiowpatch_source import PyAudioWPatchSource
 
         with paw.PyAudio() as pa:
             loopback_info = pa.get_default_wasapi_loopback()

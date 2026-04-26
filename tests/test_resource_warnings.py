@@ -10,7 +10,7 @@ Covers:
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
+from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
 
 
 # ---------------------------------------------------------------------------

@@ -13,12 +13,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metamemory.transcription.post_processor import (
+from meetandread.transcription.post_processor import (
     PostProcessJob,
     PostProcessStatus,
     PostProcessingQueue,
 )
-from metamemory.transcription.transcript_store import TranscriptStore, Word
+from meetandread.transcription.transcript_store import TranscriptStore, Word
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ class TestControllerCallback:
 
     def test_controller_callback_reads_transcript_path(self, tmp_path: Path) -> None:
         """Controller callback must read 'transcript_path', not 'enhanced_path'."""
-        from metamemory.recording.controller import RecordingController
+        from meetandread.recording.controller import RecordingController
 
         captured: dict = {}
 
@@ -213,7 +213,7 @@ class TestControllerCallback:
 
     def test_controller_callback_ignores_enhanced_path(self, tmp_path: Path) -> None:
         """If result dict only has 'enhanced_path', callback must not fire."""
-        from metamemory.recording.controller import RecordingController
+        from meetandread.recording.controller import RecordingController
 
         captured: dict = {}
 
@@ -250,7 +250,7 @@ class TestHistoryTab:
     @pytest.fixture
     def panel(self, qapp):
         """Create a FloatingTranscriptPanel for testing."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
 
         p = FloatingTranscriptPanel()
         yield p
@@ -475,7 +475,7 @@ class TestSpeakerRename:
     @pytest.fixture
     def panel(self, qapp):
         """Create a FloatingTranscriptPanel for testing."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
 
         p = FloatingTranscriptPanel()
         yield p
@@ -613,7 +613,7 @@ class TestSpeakerRename:
     ) -> None:
         """_propagate_rename_to_signatures saves under new name and deletes old."""
         import numpy as np
-        from metamemory.speaker.signatures import VoiceSignatureStore
+        from meetandread.speaker.signatures import VoiceSignatureStore
 
         # Create a signature DB with the old speaker
         db_path = tmp_path / "speaker_signatures.db"
@@ -639,7 +639,7 @@ class TestSpeakerRename:
     ) -> None:
         """_propagate_rename_to_signatures must not error when old_name is missing."""
         import numpy as np
-        from metamemory.speaker.signatures import VoiceSignatureStore
+        from meetandread.speaker.signatures import VoiceSignatureStore
 
         # Create a DB with a different speaker (not the one being renamed)
         db_path = tmp_path / "speaker_signatures.db"
@@ -675,7 +675,7 @@ class TestSpeakerRename:
     ) -> None:
         """Full rename flow: update .md metadata + propagate to signature store."""
         import numpy as np
-        from metamemory.speaker.signatures import VoiceSignatureStore
+        from meetandread.speaker.signatures import VoiceSignatureStore
 
         # Set up signature DB with SPK_0
         db_path = tmp_path / "speaker_signatures.db"
@@ -785,7 +785,7 @@ class TestSpeakerRename:
 
         # Mock QInputDialog to return "Alice"
         with patch(
-            "metamemory.widgets.floating_panels.QInputDialog.getText",
+            "meetandread.widgets.floating_panels.QInputDialog.getText",
             return_value=("Alice", True),
         ):
             panel._on_history_anchor_clicked(QUrl("speaker:SPK_0"))
@@ -818,7 +818,7 @@ class TestSpeakerRename:
 
         # Mock QInputDialog to return cancelled
         with patch(
-            "metamemory.widgets.floating_panels.QInputDialog.getText",
+            "meetandread.widgets.floating_panels.QInputDialog.getText",
             return_value=("", False),
         ):
             panel._on_history_anchor_clicked(QUrl("speaker:SPK_0"))
@@ -844,7 +844,7 @@ class TestSpeakerRename:
         panel._current_history_md_path = md_path
 
         with patch(
-            "metamemory.widgets.floating_panels.QInputDialog.getText",
+            "meetandread.widgets.floating_panels.QInputDialog.getText",
             return_value=("Carol", True),
         ):
             panel._on_history_anchor_clicked(QUrl("speaker:SPK_0"))

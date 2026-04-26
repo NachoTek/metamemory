@@ -17,7 +17,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from metamemory.audio import (
+from meetandread.audio import (
     AudioSession,
     SessionConfig,
     SourceConfig,
@@ -244,7 +244,7 @@ class TestAudioSessionErrorHandling:
         config = SessionConfig(sources=[], output_dir=tmp_path)
         session = AudioSession()
         
-        from metamemory.audio.session import NoSourcesError
+        from meetandread.audio.session import NoSourcesError
         with pytest.raises(NoSourcesError):
             session.start(config)
     
@@ -256,7 +256,7 @@ class TestAudioSessionErrorHandling:
         )
         session = AudioSession()
         
-        from metamemory.audio.session import SessionError
+        from meetandread.audio.session import SessionError
         with pytest.raises((SessionError, FileNotFoundError)):
             session.start(config)
 

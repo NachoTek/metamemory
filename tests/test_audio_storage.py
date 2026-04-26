@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from metamemory.audio.storage import (
+from meetandread.audio.storage import (
     get_recordings_dir,
     new_recording_stem,
     PcmPartWriter,
@@ -38,12 +38,12 @@ class TestPathUtilities:
 
         assert recordings_dir.exists()
         assert recordings_dir.name == "recordings"
-        assert recordings_dir.parent.name == "metamemory"
+        assert recordings_dir.parent.name == "meetandread"
 
     def test_get_recordings_dir_returns_existing(self, tmp_path: Path):
         """Existing directory is returned without error."""
         base_dir = tmp_path / "test_docs"
-        expected = base_dir / "metamemory" / "recordings"
+        expected = base_dir / "meetandread" / "recordings"
         expected.mkdir(parents=True)
 
         recordings_dir = get_recordings_dir(base_dir=base_dir)

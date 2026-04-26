@@ -56,7 +56,7 @@ def _create_synth_wav(
 @pytest.fixture(scope="module")
 def downloaded_models(tmp_path_factory):
     """Download diarization models once per module, cached in a temp dir."""
-    from metamemory.speaker.model_downloader import ensure_all_models
+    from meetandread.speaker.model_downloader import ensure_all_models
 
     cache_dir = tmp_path_factory.mktemp("diarization-models")
     return ensure_all_models(cache_dir=cache_dir)
@@ -188,21 +188,21 @@ class TestDiarizerModels:
     """Unit tests for speaker data models (no sherpa-onnx dependency)."""
 
     def test_speaker_segment_duration(self):
-        from metamemory.speaker.models import SpeakerSegment
+        from meetandread.speaker.models import SpeakerSegment
 
         seg = SpeakerSegment(start=1.0, end=3.5, speaker="spk0")
         assert seg.duration == 2.5
         assert seg.speaker == "spk0"
 
     def test_speaker_segment_frozen(self):
-        from metamemory.speaker.models import SpeakerSegment
+        from meetandread.speaker.models import SpeakerSegment
 
         seg = SpeakerSegment(start=0.0, end=1.0, speaker="spk0")
         with pytest.raises(AttributeError):
             seg.start = 2.0  # type: ignore[misc]
 
     def test_voice_signature(self):
-        from metamemory.speaker.models import VoiceSignature
+        from meetandread.speaker.models import VoiceSignature
 
         emb = np.ones(256, dtype=np.float32)
         sig = VoiceSignature(embedding=emb, speaker_label="spk0", num_segments=3)
@@ -211,7 +211,7 @@ class TestDiarizerModels:
         assert len(sig.embedding) == 256
 
     def test_speaker_profile(self):
-        from metamemory.speaker.models import SpeakerProfile
+        from meetandread.speaker.models import SpeakerProfile
 
         emb = np.zeros(256, dtype=np.float32)
         profile = SpeakerProfile(name="Alice", embedding=emb, num_samples=5)
@@ -219,7 +219,7 @@ class TestDiarizerModels:
         assert profile.num_samples == 5
 
     def test_speaker_match_confidence_validation(self):
-        from metamemory.speaker.models import SpeakerMatch
+        from meetandread.speaker.models import SpeakerMatch
 
         # Valid confidences
         for conf in ("high", "medium", "low"):
@@ -231,7 +231,7 @@ class TestDiarizerModels:
             SpeakerMatch(name="Alice", score=0.95, confidence="invalid")
 
     def test_diarization_result_succeeded(self):
-        from metamemory.speaker.models import (
+        from meetandread.speaker.models import (
             DiarizationResult,
             SpeakerSegment,
             VoiceSignature,
@@ -252,7 +252,7 @@ class TestDiarizerModels:
         assert len(failed.segments) == 0
 
     def test_diarization_result_speaker_label_for(self):
-        from metamemory.speaker.models import DiarizationResult, SpeakerMatch
+        from meetandread.speaker.models import DiarizationResult, SpeakerMatch
 
         result = DiarizationResult(
             matches={"spk0": SpeakerMatch(name="Alice", score=0.92, confidence="high")},
@@ -262,7 +262,7 @@ class TestDiarizerModels:
         assert result.speaker_label_for("spk2") == "SPK_2"
 
     def test_diarization_result_defaults(self):
-        from metamemory.speaker.models import DiarizationResult
+        from meetandread.speaker.models import DiarizationResult
 
         result = DiarizationResult()
         assert result.segments == []
@@ -280,7 +280,7 @@ class TestDiarizer:
     @pytest.mark.slow
     def test_diarizer_synth_wav(self, downloaded_models, tmp_path):
         """Diarizer.diarize() on a synthetic WAV returns a valid result."""
-        from metamemory.speaker.diarizer import Diarizer
+        from meetandread.speaker.diarizer import Diarizer
 
         cache_dir = downloaded_models["segmentation_dir"].parent
         diarizer = Diarizer(cache_dir=cache_dir)
@@ -301,7 +301,7 @@ class TestDiarizer:
     @pytest.mark.slow
     def test_diarizer_missing_wav(self, downloaded_models, tmp_path):
         """Diarizer.diarize() on a missing file returns error result."""
-        from metamemory.speaker.diarizer import Diarizer
+        from meetandread.speaker.diarizer import Diarizer
 
         cache_dir = downloaded_models["segmentation_dir"].parent
         diarizer = Diarizer(cache_dir=cache_dir)
@@ -314,7 +314,7 @@ class TestDiarizer:
     @pytest.mark.slow
     def test_diarizer_warm_up(self, downloaded_models):
         """Diarizer.warm_up() loads models without crashing."""
-        from metamemory.speaker.diarizer import Diarizer
+        from meetandread.speaker.diarizer import Diarizer
 
         cache_dir = downloaded_models["segmentation_dir"].parent
         diarizer = Diarizer(cache_dir=cache_dir)
@@ -325,7 +325,7 @@ class TestDiarizer:
     @pytest.mark.slow
     def test_diarizer_signatures_populated(self, downloaded_models, tmp_path):
         """If segments are found, each speaker should have a voice signature."""
-        from metamemory.speaker.diarizer import Diarizer
+        from meetandread.speaker.diarizer import Diarizer
 
         cache_dir = downloaded_models["segmentation_dir"].parent
         diarizer = Diarizer(cache_dir=cache_dir)
@@ -355,7 +355,7 @@ class TestSpeakerSettings:
     """Tests for the SpeakerSettings config model."""
 
     def test_defaults(self):
-        from metamemory.config.models import SpeakerSettings
+        from meetandread.config.models import SpeakerSettings
 
         s = SpeakerSettings()
         assert s.enabled is True
@@ -363,7 +363,7 @@ class TestSpeakerSettings:
         assert s.clustering_threshold == 0.5
 
     def test_roundtrip(self):
-        from metamemory.config.models import AppSettings
+        from meetandread.config.models import AppSettings
 
         app = AppSettings()
         app.speaker.enabled = False
@@ -377,7 +377,7 @@ class TestSpeakerSettings:
         assert app2.speaker.confidence_threshold == 0.8
 
     def test_missing_speaker_key_uses_defaults(self):
-        from metamemory.config.models import AppSettings
+        from meetandread.config.models import AppSettings
 
         # Config file without speaker section (migration case)
         d = {"config_version": 1, "model": {}, "transcription": {}, "hardware": {}, "ui": {}}
@@ -386,7 +386,7 @@ class TestSpeakerSettings:
         assert app.speaker.confidence_threshold == 0.6
 
     def test_from_dict_partial(self):
-        from metamemory.config.models import SpeakerSettings
+        from meetandread.config.models import SpeakerSettings
 
         s = SpeakerSettings.from_dict({"enabled": False})
         assert s.enabled is False
@@ -399,8 +399,8 @@ class TestApplySpeakerLabels:
 
     def _make_controller(self):
         """Create a RecordingController with a transcript store."""
-        from metamemory.recording.controller import RecordingController
-        from metamemory.transcription.transcript_store import TranscriptStore
+        from meetandread.recording.controller import RecordingController
+        from meetandread.transcription.transcript_store import TranscriptStore
 
         ctrl = RecordingController(enable_transcription=False)
         ctrl._transcript_store = TranscriptStore()
@@ -408,10 +408,10 @@ class TestApplySpeakerLabels:
         return ctrl
 
     def test_labels_applied_to_overlapping_words(self):
-        from metamemory.speaker.models import (
+        from meetandread.speaker.models import (
             DiarizationResult, SpeakerSegment, VoiceSignature, SpeakerMatch,
         )
-        from metamemory.transcription.transcript_store import Word
+        from meetandread.transcription.transcript_store import Word
 
         ctrl = self._make_controller()
         # Add words at 0-2s and 3-5s
@@ -445,7 +445,7 @@ class TestApplySpeakerLabels:
         assert tagged[3].speaker_id == "SPK_1"
 
     def test_no_words_no_crash(self):
-        from metamemory.speaker.models import DiarizationResult, SpeakerSegment
+        from meetandread.speaker.models import DiarizationResult, SpeakerSegment
 
         ctrl = self._make_controller()
         result = DiarizationResult(
@@ -456,7 +456,7 @@ class TestApplySpeakerLabels:
 
     def test_graceful_degradation_no_sherpa_onnx(self):
         """Import error for sherpa-onnx should be handled gracefully."""
-        from metamemory.recording.controller import RecordingController
+        from meetandread.recording.controller import RecordingController
         from unittest import mock
 
         ctrl = RecordingController(enable_transcription=False)
@@ -468,8 +468,8 @@ class TestApplySpeakerLabels:
 
     def test_diarization_disabled_skips(self):
         """When speaker.enabled=False, diarization should skip."""
-        from metamemory.recording.controller import RecordingController
-        from metamemory.transcription.transcript_store import TranscriptStore, Word
+        from meetandread.recording.controller import RecordingController
+        from meetandread.transcription.transcript_store import TranscriptStore, Word
         from unittest import mock
 
         ctrl = RecordingController(enable_transcription=False)
@@ -481,7 +481,7 @@ class TestApplySpeakerLabels:
         mock_settings.speaker.enabled = False
         ctrl._config_manager.get_settings = mock.MagicMock(return_value=mock_settings)
 
-        with mock.patch("metamemory.speaker.diarizer.Diarizer") as mock_diarizer_cls:
+        with mock.patch("meetandread.speaker.diarizer.Diarizer") as mock_diarizer_cls:
             ctrl._run_diarization(Path("test.wav"))
             mock_diarizer_cls.assert_not_called()
 
@@ -495,7 +495,7 @@ class TestSpeakerLabelsPanel:
 
     def test_speaker_color_deterministic(self):
         """Speaker color function returns consistent colors."""
-        from metamemory.widgets.floating_panels import speaker_color
+        from meetandread.widgets.floating_panels import speaker_color
         assert speaker_color("SPK_0") == "#4FC3F7"
         assert speaker_color("SPK_1") == "#FF8A65"
         # Unknown speaker gets default
@@ -503,7 +503,7 @@ class TestSpeakerLabelsPanel:
 
     def test_set_speaker_names(self):
         """set_speaker_names stores the mapping (no Qt widget needed)."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
         panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
         panel._speaker_names = {}
         panel._pinned_speakers = set()
@@ -514,7 +514,7 @@ class TestSpeakerLabelsPanel:
 
     def test_display_speaker_for_direct_hit(self):
         """_display_speaker_for returns mapped name for known raw label."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
         panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
         panel._speaker_names = {"spk0": "Alice"}
         panel._pinned_speakers = set()
@@ -522,7 +522,7 @@ class TestSpeakerLabelsPanel:
 
     def test_display_speaker_for_unknown(self):
         """_display_speaker_for returns the label itself when no mapping."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
         panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
         panel._speaker_names = {}
         panel._pinned_speakers = set()
@@ -530,7 +530,7 @@ class TestSpeakerLabelsPanel:
 
     def test_pin_speaker_name_updates_mapping(self):
         """pin_speaker_name adds to internal mapping."""
-        from metamemory.widgets.floating_panels import FloatingTranscriptPanel
+        from meetandread.widgets.floating_panels import FloatingTranscriptPanel
         panel = FloatingTranscriptPanel.__new__(FloatingTranscriptPanel)
         panel._speaker_names = {"spk0": "SPK_0"}
         panel._pinned_speakers = set()
@@ -546,9 +546,9 @@ class TestControllerPinSpeaker:
 
     def _make_controller_with_result(self, tmp_path):
         """Create a controller with a simulated diarization result and transcript."""
-        from metamemory.recording.controller import RecordingController
-        from metamemory.transcription.transcript_store import TranscriptStore, Word
-        from metamemory.speaker.models import (
+        from meetandread.recording.controller import RecordingController
+        from meetandread.transcription.transcript_store import TranscriptStore, Word
+        from meetandread.speaker.models import (
             DiarizationResult, SpeakerSegment, VoiceSignature, SpeakerMatch,
         )
         from unittest import mock
@@ -558,7 +558,7 @@ class TestControllerPinSpeaker:
         ctrl._transcript_store.start_recording()
 
         # Properly mock config manager with real SpeakerSettings
-        from metamemory.config.models import SpeakerSettings
+        from meetandread.config.models import SpeakerSettings
         mock_settings = mock.MagicMock()
         mock_settings.speaker = SpeakerSettings()
         ctrl._config_manager.get_settings = mock.MagicMock(return_value=mock_settings)
@@ -604,7 +604,7 @@ class TestControllerPinSpeaker:
 
     def test_get_speaker_names_no_result(self):
         """get_speaker_names returns empty dict when no diarization result."""
-        from metamemory.recording.controller import RecordingController
+        from meetandread.recording.controller import RecordingController
         ctrl = RecordingController(enable_transcription=False)
         assert ctrl.get_speaker_names() == {}
 
@@ -621,7 +621,7 @@ class TestControllerPinSpeaker:
         from unittest import mock
         
         # Mock get_recordings_dir to use tmp_path so DB lands in test dir
-        with mock.patch('metamemory.audio.storage.paths.get_recordings_dir', return_value=tmp_path):
+        with mock.patch('meetandread.audio.storage.paths.get_recordings_dir', return_value=tmp_path):
             ctrl = self._make_controller_with_result(tmp_path)
             ctrl.pin_speaker_name("spk0", "Alice")
 
@@ -634,7 +634,7 @@ class TestControllerPinSpeaker:
             db_path = tmp_path / "speaker_signatures.db"
             assert db_path.exists()
 
-            from metamemory.speaker.signatures import VoiceSignatureStore
+            from meetandread.speaker.signatures import VoiceSignatureStore
             with VoiceSignatureStore(str(db_path)) as store:
                 profiles = store.load_signatures()
                 names = [p.name for p in profiles]
@@ -642,7 +642,7 @@ class TestControllerPinSpeaker:
 
     def test_pin_speaker_no_result_no_crash(self, tmp_path):
         """pin_speaker_name gracefully handles missing diarization result."""
-        from metamemory.recording.controller import RecordingController
+        from meetandread.recording.controller import RecordingController
         ctrl = RecordingController(enable_transcription=False)
         # Should not crash
         ctrl.pin_speaker_name("spk0", "Alice")

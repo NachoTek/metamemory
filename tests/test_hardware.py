@@ -7,8 +7,8 @@ import pytest
 import sys
 sys.path.insert(0, 'src')
 
-from metamemory.hardware.detector import HardwareDetector, SystemSpecs
-from metamemory.hardware.recommender import (
+from meetandread.hardware.detector import HardwareDetector, SystemSpecs
+from meetandread.hardware.recommender import (
     ModelRecommender,
     ModelInfo,
     recommend_model_size,

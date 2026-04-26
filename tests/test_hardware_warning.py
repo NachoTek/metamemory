@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, 'src')
 
-from metamemory.hardware.detector import HardwareDetector, SystemSpecs
+from meetandread.hardware.detector import HardwareDetector, SystemSpecs
 
 
 # --- Fixtures ---
@@ -52,12 +52,12 @@ def make_settings_mock(auto_detect=True):
 class TestCheckHardwareRequirements:
     """Test check_hardware_requirements function."""
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.hardware.detector.HardwareDetector')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.hardware.detector.HardwareDetector')
+    @patch('meetandread.main.get_config')
     def test_below_minimum_shows_dialog(self, mock_get_config, MockDetector, MockQMessageBox):
         """Below-minimum specs should show a QMessageBox warning."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         detector = MockDetector.return_value
         detector.detect.return_value = make_low_specs()
@@ -76,12 +76,12 @@ class TestCheckHardwareRequirements:
         mock_msg_box.setWindowTitle.assert_called_once_with("Hardware Notice")
         mock_msg_box.exec.assert_called_once()
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.hardware.detector.HardwareDetector')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.hardware.detector.HardwareDetector')
+    @patch('meetandread.main.get_config')
     def test_above_minimum_no_dialog(self, mock_get_config, MockDetector, MockQMessageBox):
         """Above-minimum specs should NOT show a dialog."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         detector = MockDetector.return_value
         detector.detect.return_value = make_good_specs()
@@ -94,11 +94,11 @@ class TestCheckHardwareRequirements:
         # QMessageBox should not be instantiated
         MockQMessageBox.assert_not_called()
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.main.get_config')
     def test_auto_detect_disabled_no_dialog(self, mock_get_config, MockQMessageBox):
         """When auto_detect_on_startup is False, no dialog should appear."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         mock_get_config.return_value = make_settings_mock(auto_detect=False)
 
@@ -106,22 +106,22 @@ class TestCheckHardwareRequirements:
 
         MockQMessageBox.assert_not_called()
 
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.get_config')
     def test_exception_does_not_crash(self, mock_get_config):
         """Exceptions during detection should be caught and not crash the app."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         mock_get_config.side_effect = RuntimeError("Config broken")
 
         # Should not raise — function catches all exceptions
         check_hardware_requirements()
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.hardware.detector.HardwareDetector')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.hardware.detector.HardwareDetector')
+    @patch('meetandread.main.get_config')
     def test_warning_message_used_as_informative_text(self, mock_get_config, MockDetector, MockQMessageBox):
         """The warning message from HardwareDetector should appear in InformativeText."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         warning_text = "RAM: 2.0GB (need 4GB+), CPU cores: 1 (need 2+)"
         detector = MockDetector.return_value
@@ -139,12 +139,12 @@ class TestCheckHardwareRequirements:
         # Verify the informative text contains the warning message
         mock_msg_box.setInformativeText.assert_called_once_with(warning_text)
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.hardware.detector.HardwareDetector')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.hardware.detector.HardwareDetector')
+    @patch('meetandread.main.get_config')
     def test_dialog_is_warning_icon(self, mock_get_config, MockDetector, MockQMessageBox):
         """Dialog should use Warning icon."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         detector = MockDetector.return_value
         detector.detect.return_value = make_low_specs()
@@ -165,12 +165,12 @@ class TestCheckHardwareRequirements:
         # Verify the function used QMessageBox.Icon.Warning from the mock
         assert call_args[0][0] is MockQMessageBox.Icon.Warning
 
-    @patch('metamemory.main.QMessageBox')
-    @patch('metamemory.hardware.detector.HardwareDetector')
-    @patch('metamemory.main.get_config')
+    @patch('meetandread.main.QMessageBox')
+    @patch('meetandread.hardware.detector.HardwareDetector')
+    @patch('meetandread.main.get_config')
     def test_dialog_has_ok_button_only(self, mock_get_config, MockDetector, MockQMessageBox):
         """Dialog should have only an OK button (informational, not a choice)."""
-        from metamemory.main import check_hardware_requirements
+        from meetandread.main import check_hardware_requirements
 
         detector = MockDetector.return_value
         detector.detect.return_value = make_low_specs()

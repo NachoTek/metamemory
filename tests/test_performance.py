@@ -1,4 +1,4 @@
-"""Tests for the metamemory.performance package.
+"""Tests for the meetandread.performance package.
 
 Covers:
 - wer.py: WER calculation with edge cases and known examples
@@ -17,9 +17,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from metamemory.performance.benchmark import BenchmarkResult, BenchmarkRunner
-from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
-from metamemory.performance.wer import WERDetail, calculate_wer, calculate_wer_details
+from meetandread.performance.benchmark import BenchmarkResult, BenchmarkRunner
+from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
+from meetandread.performance.wer import WERDetail, calculate_wer, calculate_wer_details
 
 
 # ============================================================
@@ -252,7 +252,7 @@ class TestResourceMonitor:
         """Monitor logs a WARNING when RAM exceeds threshold."""
         import logging
         monitor = ResourceMonitor(ram_warning_percent=0.0)
-        with caplog.at_level(logging.WARNING, logger="metamemory.performance.monitor"):
+        with caplog.at_level(logging.WARNING, logger="meetandread.performance.monitor"):
             monitor.poll()
         assert any("High RAM usage" in r.message for r in caplog.records)
 
@@ -536,16 +536,16 @@ class TestImports:
     """Verify all public imports work."""
 
     def test_wer_imports(self):
-        from metamemory.performance.wer import calculate_wer, calculate_wer_details
+        from meetandread.performance.wer import calculate_wer, calculate_wer_details
 
     def test_monitor_imports(self):
-        from metamemory.performance.monitor import ResourceMonitor, ResourceSnapshot
+        from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
 
     def test_benchmark_imports(self):
-        from metamemory.performance.benchmark import BenchmarkRunner, BenchmarkResult
+        from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
 
     def test_package_imports(self):
-        from metamemory.performance import (
+        from meetandread.performance import (
             calculate_wer,
             calculate_wer_details,
             ResourceMonitor,

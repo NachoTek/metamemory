@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from metamemory.audio.capture import FakeAudioModule
-from metamemory.transcription import (
+from meetandread.audio.capture import FakeAudioModule
+from meetandread.transcription import (
     AudioRingBuffer,
     VADChunkingProcessor,
     LocalAgreementBuffer,

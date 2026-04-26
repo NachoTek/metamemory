@@ -32,9 +32,9 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from metamemory.recording.controller import RecordingController, ControllerState
-from metamemory.transcription.transcript_store import TranscriptStore, Word
-from metamemory.transcription.confidence import get_confidence_color
+from meetandread.recording.controller import RecordingController, ControllerState
+from meetandread.transcription.transcript_store import TranscriptStore, Word
+from meetandread.transcription.confidence import get_confidence_color
 
 
 def create_test_wav_with_speech(path: Path, duration: float = 5.0, sample_rate: int = 16000) -> None:

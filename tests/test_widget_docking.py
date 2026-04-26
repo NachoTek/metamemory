@@ -59,7 +59,7 @@ def widget(qapp):
     regardless of the host machine.  Config save/load is mocked to avoid
     cross-test contamination via real config file.
     """
-    from metamemory.widgets.main_widget import MeetAndReadWidget
+    from meetandread.widgets.main_widget import MeetAndReadWidget
 
     fake_screen = MagicMock()
     fake_screen.geometry.return_value = _FakeScreenGeometry(1920, 1080)
@@ -67,10 +67,10 @@ def widget(qapp):
 
     with patch.object(QApplication, "primaryScreen", return_value=fake_screen), \
          patch.object(QApplication, "screens", return_value=[fake_screen]), \
-         patch("metamemory.widgets.main_widget.get_config") as mock_get, \
-         patch("metamemory.widgets.main_widget.save_config"):
+         patch("meetandread.widgets.main_widget.get_config") as mock_get, \
+         patch("meetandread.widgets.main_widget.save_config"):
         # Return default settings so widget doesn't pick up stale state
-        from metamemory.config.models import UISettings, AppSettings
+        from meetandread.config.models import UISettings, AppSettings
         mock_get.return_value = AppSettings(ui=UISettings())
 
         w = MeetAndReadWidget()
@@ -115,7 +115,7 @@ def _advance_animations(widget, ticks=15, interval_ms=33):
         # Each call to monotonic from _update_animations returns base + accumulated ticks
         return base_monotonic() + (call_count * interval_ms / 1000.0)
 
-    with patch("metamemory.widgets.main_widget._time.monotonic", fake_monotonic):
+    with patch("meetandread.widgets.main_widget._time.monotonic", fake_monotonic):
         for _ in range(ticks):
             widget._update_animations()
 
@@ -225,7 +225,7 @@ class TestSlideAnimationInterpolation:
 
         widget._start_slide_to(target)
         positions = []
-        with patch("metamemory.widgets.main_widget._time.monotonic", fake_monotonic):
+        with patch("meetandread.widgets.main_widget._time.monotonic", fake_monotonic):
             for _ in range(9):
                 widget._update_animations()
                 positions.append(widget.pos().x())
@@ -248,10 +248,10 @@ class TestConfigPersistenceRoundTrip:
 
     def test_save_and_restore_dock_left(self, widget):
         """Set dock_edge='left', save, reload config, assert dock_edge='left'."""
-        from metamemory.config import get_config, set_config, save_config, AppSettings
-        from metamemory.config.models import UISettings
+        from meetandread.config import get_config, set_config, save_config, AppSettings
+        from meetandread.config.models import UISettings
 
-        with patch("metamemory.widgets.main_widget.save_config"):
+        with patch("meetandread.widgets.main_widget.save_config"):
             widget.dock_edge = "left"
             widget._save_position()
 
@@ -261,14 +261,14 @@ class TestConfigPersistenceRoundTrip:
 
         # Clean up — restore None for subsequent tests
         widget.dock_edge = None
-        with patch("metamemory.widgets.main_widget.save_config"):
+        with patch("meetandread.widgets.main_widget.save_config"):
             widget._save_position()
 
     def test_save_and_restore_undocked(self, widget):
         """Set dock_edge=None, save, reload config, assert dock_edge=None."""
-        from metamemory.config import get_config
+        from meetandread.config import get_config
 
-        with patch("metamemory.widgets.main_widget.save_config"):
+        with patch("meetandread.widgets.main_widget.save_config"):
             widget.dock_edge = None
             widget._save_position()
 
@@ -277,9 +277,9 @@ class TestConfigPersistenceRoundTrip:
 
     def test_save_and_restore_dock_right(self, widget):
         """Set dock_edge='right', save, reload, assert dock_edge='right'."""
-        from metamemory.config import get_config
+        from meetandread.config import get_config
 
-        with patch("metamemory.widgets.main_widget.save_config"):
+        with patch("meetandread.widgets.main_widget.save_config"):
             widget.dock_edge = "right"
             widget._save_position()
 
@@ -288,7 +288,7 @@ class TestConfigPersistenceRoundTrip:
 
         # Clean up
         widget.dock_edge = None
-        with patch("metamemory.widgets.main_widget.save_config"):
+        with patch("meetandread.widgets.main_widget.save_config"):
             widget._save_position()
 
 

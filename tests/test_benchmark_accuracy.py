@@ -10,12 +10,12 @@ Run with: pytest tests/test_benchmark_accuracy.py -v -m slow
 import pytest
 from pathlib import Path
 
-from metamemory.transcription.engine import WhisperTranscriptionEngine
-from metamemory.performance.benchmark import BenchmarkRunner
-from metamemory.performance.wer import calculate_wer_details
+from meetandread.transcription.engine import WhisperTranscriptionEngine
+from meetandread.performance.benchmark import BenchmarkRunner
+from meetandread.performance.wer import calculate_wer_details
 
 # Default test data paths (created by T01)
-BENCHMARK_DIR = Path(__file__).resolve().parent.parent / "src" / "metamemory" / "performance" / "test_data"
+BENCHMARK_DIR = Path(__file__).resolve().parent.parent / "src" / "meetandread" / "performance" / "test_data"
 TEST_CLIP = BENCHMARK_DIR / "benchmark.wav"
 GROUND_TRUTH = BENCHMARK_DIR / "benchmark_ground_truth.txt"
 RESULTS_FILE = BENCHMARK_DIR / "benchmark_results.txt"

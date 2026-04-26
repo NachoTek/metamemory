@@ -21,9 +21,9 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from metamemory.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
-from metamemory.transcription.transcript_store import TranscriptStore
-from metamemory.config.models import AppSettings, TranscriptionSettings
+from meetandread.transcription.streaming_pipeline import RealTimeTranscriptionProcessor
+from meetandread.transcription.transcript_store import TranscriptStore
+from meetandread.config.models import AppSettings, TranscriptionSettings
 
 
 def convert_mp3_to_wav(mp3_path: Path) -> Path:
@@ -162,7 +162,7 @@ def test_with_sample_audio():
                 print(f"Chunk {chunk_num:3d}: '{result.text}' (latency: {latency:.2f}s, conf: {result.confidence})")
                 
                 # Add to store
-                from metamemory.transcription.transcript_store import Word
+                from meetandread.transcription.transcript_store import Word
                 words = [
                     Word(text=w.word if hasattr(w, 'word') else str(w), 
                          start_time=w.start if hasattr(w, 'start') else 0,
