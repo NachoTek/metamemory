@@ -1606,6 +1606,73 @@ class FloatingSettingsPanel(QWidget):
         )
         perf_layout.addWidget(self._wer_label)
 
+        # --- Model Selector for Benchmark ---
+        model_row = QHBoxLayout()
+        model_row.setSpacing(6)
+        bench_model_lbl = QLabel("Benchmark Model:")
+        bench_model_lbl.setStyleSheet("QLabel { color: #aaa; font-size: 11px; }")
+        model_row.addWidget(bench_model_lbl)
+
+        self._benchmark_model_combo = QComboBox()
+        self._benchmark_model_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+                min-width: 140px;
+            }
+            QComboBox:hover {
+                border-color: #4CAF50;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 6px solid #888;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: 1px solid #555;
+                selection-background-color: #4CAF50;
+                selection-color: #000;
+            }
+        """)
+
+        # Populate with all 5 models, default to current live model
+        try:
+            from meetandread.config import get_config
+            _cfg = get_config()
+            _default_bench_model = _cfg.transcription.realtime_model_size
+            _bench_history = _cfg.transcription.benchmark_history
+        except Exception:
+            _default_bench_model = "tiny"
+            _bench_history = {}
+
+        _model_order = ["tiny", "base", "small", "medium", "large"]
+        _select_idx = 0
+        for _i, _mn in enumerate(_model_order):
+            _entry = _bench_history.get(_mn)
+            if _entry and "wer" in _entry:
+                _wer_pct = _entry["wer"] * 100
+                _item_text = f"{_mn} — WER: {_wer_pct:.1f}%"
+            else:
+                _item_text = f"{_mn} (not benchmarked)"
+            self._benchmark_model_combo.addItem(_item_text, _mn)
+            if _mn == _default_bench_model:
+                _select_idx = _i
+        self._benchmark_model_combo.setCurrentIndex(_select_idx)
+        model_row.addWidget(self._benchmark_model_combo, 1)
+        perf_layout.addLayout(model_row)
+
         # --- Benchmark Button ---
         self._benchmark_btn = QPushButton("Run Benchmark")
         self._benchmark_btn.setStyleSheet("""
@@ -1914,8 +1981,8 @@ class FloatingSettingsPanel(QWidget):
     def _on_benchmark_clicked(self) -> None:
         """Handle 'Run Benchmark' button click.
 
-        Creates a BenchmarkRunner with the controller's transcription engine
-        (if available) and runs it asynchronously.
+        Creates a BenchmarkRunner using the model selected in the
+        benchmark model dropdown, and runs it asynchronously.
         """
         if self._benchmark_runner and self._benchmark_runner.is_running:
             logger.info("Benchmark already running, ignoring click")
@@ -1925,15 +1992,15 @@ class FloatingSettingsPanel(QWidget):
         self._benchmark_btn.setEnabled(False)
         self._benchmark_btn.setText("Running...")
 
-        # Create a fresh engine for benchmarking.
-        # The controller's internal engine is only available during active
-        # recording and is set to None on stop, so we can't rely on it.
+        # Read model selection from the benchmark model combo.
+        # currentData() returns the plain model name (e.g. "base"),
+        # but currentText() may include WER annotation — use data.
+        model_size = self._benchmark_model_combo.currentData() or "tiny"
+
+        # Create a fresh engine for the selected model.
         engine = None
         try:
             from meetandread.transcription.engine import WhisperTranscriptionEngine
-            from meetandread.config import get_config
-            settings = get_config()
-            model_size = settings.transcription.realtime_model_size
             engine = WhisperTranscriptionEngine(model_size=model_size)
             engine.load_model()
         except Exception as exc:
@@ -1955,7 +2022,7 @@ class FloatingSettingsPanel(QWidget):
         self._benchmark_btn.setText(f"Running... {percent}%")
 
     def _on_benchmark_complete(self, result: BenchmarkResult) -> None:
-        """Handle benchmark completion — update UI with results.
+        """Handle benchmark completion — persist per-model result to config and update UI.
 
         Args:
             result: BenchmarkResult with WER, latency, and throughput data.
@@ -1971,15 +2038,18 @@ class FloatingSettingsPanel(QWidget):
             )
             return
 
+        # Extract model name from result
+        model_name = result.model_info.get("model_size", "unknown") if result.model_info else "unknown"
+
         # Format result
         wer_pct = result.wer * 100
         result_text = (
-            f"WER: {wer_pct:.1f}% | "
+            f"{model_name}: WER {wer_pct:.1f}% | "
             f"Latency: {result.total_latency_s:.2f}s | "
             f"Speed: {result.throughput_ratio:.1f}x realtime"
         )
 
-        # Store in history (keep last 5)
+        # Store in local history (keep last 5)
         self._benchmark_history.append({
             "wer": result.wer,
             "latency_s": result.total_latency_s,
@@ -1989,24 +2059,59 @@ class FloatingSettingsPanel(QWidget):
         if len(self._benchmark_history) > 5:
             self._benchmark_history = self._benchmark_history[-5:]
 
-        # Build history display
+        # Persist per-model result to config
+        try:
+            from meetandread.config import get_config, set_config, save_config
+            settings = get_config()
+            history = dict(settings.transcription.benchmark_history)
+
+            from datetime import datetime
+            history[model_name] = {
+                "wer": result.wer,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            set_config("transcription.benchmark_history", history)
+            save_config()
+            logger.info("Persisted benchmark result for model '%s' to config", model_name)
+        except Exception as exc:
+            logger.warning("Failed to persist benchmark result to config: %s", exc)
+
+        # Build per-model history display
         lines = []
         for i, entry in enumerate(reversed(self._benchmark_history), 1):
             w = entry["wer"] * 100
             t = entry["throughput"]
-            lines.append(f"#{i}: WER {w:.1f}% | {t:.1f}x")
+            m = entry.get("model_info", {}).get("model_size", "unknown")
+            ts = ""
+            # Show timestamp from config if available
+            try:
+                from meetandread.config import get_config
+                _cfg = get_config()
+                _hist_entry = _cfg.transcription.benchmark_history.get(m)
+                if _hist_entry and "timestamp" in _hist_entry:
+                    ts = f" ({_hist_entry['timestamp'][:16]})"
+            except Exception:
+                pass
+            lines.append(f"#{i} {m}: WER {w:.1f}% | Speed {t:.1f}x{ts}")
 
         self._benchmark_history_label.setText("\n".join(lines))
         self._benchmark_history_label.setStyleSheet(
             "QLabel { color: #aaa; font-size: 11px; padding: 2px; }"
         )
 
+        # Update the benchmark model dropdown to reflect new WER
+        self._refresh_benchmark_model_combo()
+
+        # Refresh Settings dropdowns with updated WER data
+        self._refresh_dropdown_wer()
+
         # Also update the WER display with benchmark result
         self.update_wer_display(result.wer)
 
         logger.info(
-            "Benchmark complete: WER=%.3f, throughput=%.1fx, latency=%.2fs",
-            result.wer, result.throughput_ratio, result.total_latency_s,
+            "Benchmark complete: model=%s, WER=%.3f, throughput=%.1fx, latency=%.2fs",
+            model_name, result.wer, result.throughput_ratio, result.total_latency_s,
         )
 
     # ------------------------------------------------------------------
@@ -2096,6 +2201,46 @@ class FloatingSettingsPanel(QWidget):
         """Update all dropdown item texts with latest WER from config."""
         self._populate_model_dropdown(self._live_model_combo, "realtime_model_size")
         self._populate_model_dropdown(self._postprocess_model_combo, "postprocess_model_size")
+
+    def _refresh_benchmark_model_combo(self) -> None:
+        """Update benchmark model dropdown items with latest WER from config.
+
+        Preserves the current model selection. On first call (empty combo),
+        defaults to the current live model from config.
+        """
+        current_model = self._benchmark_model_combo.currentData()
+        if current_model is None:
+            # First call — default to current live model
+            try:
+                from meetandread.config import get_config
+                current_model = get_config().transcription.realtime_model_size
+            except Exception:
+                current_model = "tiny"
+
+        self._benchmark_model_combo.blockSignals(True)
+        self._benchmark_model_combo.clear()
+
+        try:
+            from meetandread.config import get_config
+            _cfg = get_config()
+            _bench_history = _cfg.transcription.benchmark_history
+        except Exception:
+            _bench_history = {}
+
+        _model_order = ["tiny", "base", "small", "medium", "large"]
+        _select_idx = 0
+        for _i, _mn in enumerate(_model_order):
+            _entry = _bench_history.get(_mn)
+            if _entry and "wer" in _entry:
+                _wer_pct = _entry["wer"] * 100
+                _item_text = f"{_mn} — WER: {_wer_pct:.1f}%"
+            else:
+                _item_text = f"{_mn} (not benchmarked)"
+            self._benchmark_model_combo.addItem(_item_text, _mn)
+            if _mn == current_model:
+                _select_idx = _i
+        self._benchmark_model_combo.setCurrentIndex(_select_idx)
+        self._benchmark_model_combo.blockSignals(False)
 
     def update_benchmark_display(self, wer_by_model: dict) -> None:
         """Refresh both model dropdowns after benchmark completes.
