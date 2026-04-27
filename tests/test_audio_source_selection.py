@@ -276,6 +276,7 @@ class TestRecordingLockWiring:
         widget._tray_manager = None
         widget.is_processing = False
         widget.is_recording = False
+        widget._visual_state = MagicMock()
 
         MeetAndReadWidget._on_controller_state_change(widget, ControllerState.RECORDING)
 
@@ -301,6 +302,7 @@ class TestRecordingLockWiring:
         widget._tray_manager = None
         widget.is_recording = True
         widget.is_processing = False
+        widget._visual_state = MagicMock()
 
         MeetAndReadWidget._on_controller_state_change(widget, ControllerState.IDLE)
 
@@ -315,6 +317,7 @@ class TestRecordingLockWiring:
         widget._tray_manager = None
         widget.is_recording = True
         widget.is_processing = False
+        widget._visual_state = MagicMock()
 
         MeetAndReadWidget._on_controller_state_change(widget, ControllerState.ERROR)
 

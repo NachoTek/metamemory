@@ -12,9 +12,11 @@ Key improvement: Uses floating QWidget panels instead of QGraphicsItem panels
 to avoid clipping issues and enable proper text editing.
 """
 
+from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
 import logging
+import math as _math
 import re
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
@@ -51,6 +53,95 @@ class _SlideState:
             return "<_SlideState inactive>"
         return (f"<_SlideState {self.start_pos}→{self.target_pos} "
                 f"dur={self.duration_ms}ms>")
+
+
+class _WidgetVisualStateMachine:
+    """Owns the widget's current visual state and eased transition progress.
+
+    States: IDLE → RECORDING → PROCESSING → IDLE.
+    Transitions animate over ~200 ms at 30 fps (6 frames).  Transition
+    progress goes from 0.0 (old state fully visible) to 1.0 (new state
+    fully visible), using quadratic ease-out deceleration matching
+    RecordButtonItem._ease_out().
+    """
+
+    def __init__(self, initial_state: "WidgetVisualState"):
+        self._current: WidgetVisualState = initial_state
+        self._previous: WidgetVisualState = initial_state
+        self._progress: float = 1.0  # 0.0 → 1.0; 1.0 means settled
+        self._speed: float = 1.0 / 6  # ~200 ms at 33 ms/frame
+
+    # -- public API --------------------------------------------------------
+
+    @property
+    def current(self) -> "WidgetVisualState":
+        return self._current
+
+    @property
+    def previous(self) -> "WidgetVisualState":
+        return self._previous
+
+    @property
+    def progress(self) -> float:
+        """Transition progress: 0.0 (old state) → 1.0 (new state)."""
+        return self._progress
+
+    def transition_to(self, new_state: "WidgetVisualState") -> None:
+        """Begin an eased transition to *new_state*.
+
+        If already transitioning to the same state this is a no-op.
+        If mid-transition, the current interpolated position becomes the
+        new starting point so there is no visual jump.
+        """
+        if new_state == self._current and self._progress >= 1.0:
+            return  # already settled at this state
+        if new_state != self._current:
+            logging.debug(
+                "WidgetVisualState: %s → %s (was progress=%.2f)",
+                self._current.name, new_state.name, self._progress,
+            )
+            self._previous = self._current
+            self._current = new_state
+            self._progress = 0.0
+
+    def tick(self) -> None:
+        """Advance one animation frame (~33 ms)."""
+        if self._progress < 1.0:
+            self._progress = min(1.0, self._progress + self._speed)
+
+    @staticmethod
+    def _ease_out(t: float) -> float:
+        """Quadratic ease-out curve (same as RecordButtonItem._ease_out)."""
+        return 1.0 - (1.0 - t) ** 2
+
+    def current_opacity(self) -> float:
+        """Return the eased opacity of the *new* state (0.0 → 1.0).
+
+        The old state's implied opacity is ``1.0 - current_opacity()``.
+        """
+        return self._ease_out(self._progress)
+
+    def current_properties(self) -> dict:
+        """Return a dict describing the current interpolated visual state.
+
+        Keys:
+            state   – current WidgetVisualState
+            opacity – eased opacity of the new state (0.0–1.0)
+            settled – True when the transition is complete
+        """
+        return {
+            "state": self._current,
+            "opacity": self.current_opacity(),
+            "settled": self._progress >= 1.0,
+        }
+
+
+class WidgetVisualState(Enum):
+    """Named visual states for the main widget."""
+
+    IDLE = auto()
+    RECORDING = auto()
+    PROCESSING = auto()
 
 
 class DragSurfaceItem(QGraphicsRectItem):
@@ -149,6 +240,9 @@ to avoid clipping issues and enable proper text rendering.
         self.is_docked = False
         self.dock_edge = None  # 'left', 'right'
         self._slide_state = _SlideState()
+        
+        # Visual state machine (idle → recording → processing → idle)
+        self._visual_state = _WidgetVisualStateMachine(WidgetVisualState.IDLE)
         
         # Recording controller
         self._controller = RecordingController()
@@ -382,6 +476,9 @@ to avoid clipping issues and enable proper text rendering.
         """Update animation states."""
         # Advance record button state transitions (~200ms eased cross-fade)
         self.record_button.tick()
+
+        # Advance widget visual state machine (~200ms eased transition)
+        self._visual_state.tick()
 
         # --- Slide animation (edge docking) ---
         s = self._slide_state
@@ -720,6 +817,7 @@ to avoid clipping issues and enable proper text rendering.
         if state == ControllerState.RECORDING:
             self.is_recording = True
             self.is_processing = False
+            self._visual_state.transition_to(WidgetVisualState.RECORDING)
             self.record_button.set_recording_state(True)
             self._hide_error()
             # Lock lobes during recording
@@ -747,12 +845,14 @@ to avoid clipping issues and enable proper text rendering.
         elif state == ControllerState.STOPPING:
             self.is_recording = False
             self.is_processing = True
+            self._visual_state.transition_to(WidgetVisualState.PROCESSING)
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(True)
             
         elif state == ControllerState.IDLE:
             self.is_recording = False
             self.is_processing = False
+            self._visual_state.transition_to(WidgetVisualState.IDLE)
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(False)
             # Unlock lobes when idle
@@ -763,6 +863,7 @@ to avoid clipping issues and enable proper text rendering.
         elif state == ControllerState.ERROR:
             self.is_recording = False
             self.is_processing = False
+            self._visual_state.transition_to(WidgetVisualState.IDLE)
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(False)
             # Unlock lobes on error so user can adjust
