@@ -537,9 +537,7 @@ to avoid clipping issues and enable proper text rendering.
                 )
         
         if self.is_recording and not self.is_processing:
-            self.pulse_phase += 0.1
-            if self.pulse_phase > 6.28:  # 2*PI
-                self.pulse_phase = 0.0
+            self.pulse_phase += 0.05  # ~2s period at 30fps
             self.record_button.pulse_phase = self.pulse_phase
             self.record_button.update()
         elif self.is_processing:
@@ -1234,20 +1232,21 @@ class RecordButtonItem(QGraphicsEllipseItem):
         painter.drawEllipse(rect)
     
     def _paint_recording(self, painter, rect):
-        """Paint recording state - glowing red pulse."""
-        # Calculate pulse intensity
-        pulse = (1 + 0.3 * abs(self.pulse_phase)) / 1.3
+        """Paint recording state - smooth sinusoidal glowing red pulse."""
+        # Sinusoidal intensity: smooth 0.0 → 1.0 → 0.0 oscillation
+        pulse = 0.5 + 0.5 * _math.sin(self.pulse_phase)
         
-        # Outer glow
+        # Outer glow rings — 3 rings with alpha/radius spread modulated by pulse
         for i in range(3, 0, -1):
-            alpha = int(80 * pulse / i)
-            radius = i * 4
+            alpha = int(30 + 60 * pulse / i)  # 30–90 based on pulse
+            radius = 3 + i * (2 + int(pulse * 2))  # 3–8px spread
             painter.setBrush(QBrush(QColor(255, 50, 50, alpha)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(rect.adjusted(-radius, -radius, radius, radius))
         
-        # Main button - solid red
-        painter.setBrush(QBrush(QColor(255, 50, 50, 200)))
+        # Main button — subtle breathing effect
+        alpha = 180 + int(75 * pulse)
+        painter.setBrush(QBrush(QColor(255, 50, 50, alpha)))
         painter.setPen(QPen(QColor(255, 100, 100, 255), 2))
         painter.drawEllipse(rect)
     
