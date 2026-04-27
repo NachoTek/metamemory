@@ -1194,6 +1194,13 @@ class RecordButtonItem(QGraphicsEllipseItem):
         self._state_t = 0.0
         self.update()
     
+    _ORBITS = [
+        {"radius_frac": 0.55, "speed_mult": 0.6, "size": 6, "alpha": 120, "offset": 0.0},
+        {"radius_frac": 0.70, "speed_mult": 1.0, "size": 8, "alpha": 180, "offset": 2.1},
+        {"radius_frac": 0.70, "speed_mult": 1.0, "size": 8, "alpha": 180, "offset": 4.2},
+        {"radius_frac": 0.85, "speed_mult": 1.4, "size": 5, "alpha": 100, "offset": 1.0},
+    ]
+
     def set_pulse_phase(self, phase):
         """Set pulse animation phase."""
         self.pulse_phase = phase
@@ -1265,25 +1272,26 @@ class RecordButtonItem(QGraphicsEllipseItem):
         painter.drawEllipse(rect)
     
     def _paint_swirl(self, painter, rect):
-        """Paint processing state - swirling animation."""
+        """Paint processing state - orbiting dots at varied radii and speeds."""
         # Background
         painter.setBrush(QBrush(QColor(100, 100, 255, 180)))
         painter.setPen(QPen(QColor(150, 150, 255, 255), 2))
         painter.drawEllipse(rect)
         
-        # Swirl effect
-        import math
+        # Multi-radius orbiting dots
         center = rect.center()
-        radius = rect.width() / 2 - 5
+        max_radius = rect.width() / 2 - 5
         
-        for i in range(8):
-            angle = self.swirl_phase + (i * math.pi / 4)
-            x = center.x() + radius * 0.7 * math.cos(angle)
-            y = center.y() + radius * 0.7 * math.sin(angle)
+        for orbit in self._ORBITS:
+            angle = self.swirl_phase * orbit["speed_mult"] + orbit["offset"]
+            radius = max_radius * orbit["radius_frac"]
+            x = center.x() + radius * _math.cos(angle)
+            y = center.y() + radius * _math.sin(angle)
             
-            painter.setBrush(QBrush(QColor(255, 255, 255, 150)))
+            size = orbit["size"]
+            painter.setBrush(QBrush(QColor(255, 255, 255, orbit["alpha"])))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(int(x) - 4, int(y) - 4, 8, 8)
+            painter.drawEllipse(int(x) - size // 2, int(y) - size // 2, size, size)
     
     def _paint_icon_for_state(self, painter, rect, state_key):
         """Paint record/stop icon for a given state key."""
