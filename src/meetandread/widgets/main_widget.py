@@ -547,11 +547,25 @@ to avoid clipping issues and enable proper text rendering.
             self.record_button.swirl_phase = self.pulse_phase
             self.record_button.update()
         else:
-            # Idle — reset animation phases so stale values don't leak
-            if self.pulse_phase != 0.0:
-                self.pulse_phase = 0.0
-                self.record_button.pulse_phase = 0.0
-                self.record_button.swirl_phase = 0.0
+            # Idle — let animation phases decay during cross-fade rather than
+            # snapping to zero, which would cause a visual jump in the fading-
+            # out state.  Only reset once the RecordButtonItem cross-fade has
+            # fully settled so no stale painting references the phases.
+            if self.record_button._state_t >= 1.0:
+                # Cross-fade settled — safe to reset phases
+                if self.pulse_phase != 0.0:
+                    logging.debug(
+                        "Phase decay complete: resetting pulse_phase=%.2f",
+                        self.pulse_phase,
+                    )
+                    self.pulse_phase = 0.0
+                    self.record_button.pulse_phase = 0.0
+                    self.record_button.swirl_phase = 0.0
+            else:
+                # Still cross-fading — keep driving phases so the fading-out
+                # state continues to paint smoothly (pulse decays naturally
+                # since we stop incrementing; swirl wraps harmlessly).
+                pass
             # Force state to idle if somehow stuck
             if self.record_button._to_key != 'idle':
                 self.record_button._from_key = self.record_button._to_key

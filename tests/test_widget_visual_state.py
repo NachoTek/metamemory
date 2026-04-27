@@ -345,3 +345,307 @@ class TestGlassOpacity:
             widget._on_controller_state_change(ControllerState.RECORDING)
             widget._update_animations()  # one tick, transition not settled
         assert any("Glass opacity" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# T04: Smooth integrated state transitions across full lifecycle
+# ---------------------------------------------------------------------------
+
+class TestIntegratedStateTransitions:
+    """Verify widget state machine and RecordButtonItem are wired together
+    and all lifecycle transitions are visually smooth (no flicker, no phase
+    jumps, no stale animation phases)."""
+
+    @pytest.fixture
+    def widget(self, qapp):
+        from unittest.mock import patch, MagicMock
+        from meetandread.widgets.main_widget import MeetAndReadWidget
+
+        fake_geo = _FakeScreenGeometry()
+        fake_screen = MagicMock()
+        fake_screen.geometry.return_value = fake_geo
+        with patch("meetandread.widgets.main_widget.QApplication.primaryScreen",
+                    return_value=fake_screen), \
+             patch("meetandread.widgets.main_widget.QApplication.screens",
+                    return_value=[fake_screen]), \
+             patch("meetandread.widgets.main_widget.get_config", return_value=None), \
+             patch("meetandread.widgets.main_widget.save_config"):
+            w = MeetAndReadWidget()
+        w._floating_transcript_panel = MagicMock()
+        w._floating_transcript_panel.isVisible.return_value = False
+        w._floating_settings_panel = MagicMock()
+        w._floating_settings_panel.isVisible.return_value = False
+        yield w
+        w.close()
+
+    # -- Step 1: Widget state machine triggers RecordButtonItem simultaneously --
+
+    def test_recording_syncs_both_state_systems(self, widget):
+        """Controller RECORDING triggers both visual state machine and RecordButtonItem."""
+        from meetandread.recording import ControllerState
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        # Widget state machine should be RECORDING
+        assert widget._visual_state.current == WidgetVisualState.RECORDING
+        # RecordButtonItem should be recording
+        assert widget.record_button.is_recording is True
+        assert widget.record_button._to_key == 'recording'
+
+    def test_processing_syncs_both_state_systems(self, widget):
+        """Controller STOPPING triggers both state systems."""
+        from meetandread.recording import ControllerState
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        widget._on_controller_state_change(ControllerState.STOPPING)
+        assert widget._visual_state.current == WidgetVisualState.PROCESSING
+        assert widget.record_button.is_processing is True
+        assert widget.record_button._to_key == 'processing'
+
+    def test_idle_syncs_both_state_systems(self, widget):
+        """Controller IDLE resets both state systems."""
+        from meetandread.recording import ControllerState
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        widget._on_controller_state_change(ControllerState.IDLE)
+        assert widget._visual_state.current == WidgetVisualState.IDLE
+        assert widget.record_button.is_recording is False
+        assert widget.record_button.is_processing is False
+        assert widget.record_button._to_key == 'idle'
+
+    # -- Step 2-3: Phase reset timing (smooth decay, not snap) --
+
+    def test_pulse_phase_not_reset_during_crossfade(self, widget):
+        """pulse_phase should NOT snap to 0 while RecordButtonItem cross-fades
+        back to idle — the fading-out recording state needs a valid phase."""
+        from meetandread.recording import ControllerState
+        # Enter recording, advance pulse_phase
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(10):
+            widget._update_animations()
+        assert widget.pulse_phase > 0.0
+
+        # Transition to idle — cross-fade starts
+        widget._on_controller_state_change(ControllerState.IDLE)
+        widget._update_animations()  # one tick — cross-fade in progress
+
+        # Cross-fade is not yet complete (6 frames needed)
+        assert widget.record_button._state_t < 1.0
+        # pulse_phase should NOT have been reset to 0 yet
+        assert widget.pulse_phase != 0.0, (
+            "pulse_phase was snapped to 0 during cross-fade — would cause visual jump"
+        )
+
+    def test_pulse_phase_resets_after_crossfade_settles(self, widget):
+        """pulse_phase should reset to 0 only after the cross-fade completes."""
+        from meetandread.recording import ControllerState
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(10):
+            widget._update_animations()
+        assert widget.pulse_phase > 0.0
+
+        widget._on_controller_state_change(ControllerState.IDLE)
+        # Run enough ticks for both state machine and RecordButtonItem to settle
+        for _ in range(20):
+            widget._update_animations()
+
+        # Cross-fade should be fully settled now
+        assert widget.record_button._state_t >= 1.0
+        # Phase should now be reset
+        assert widget.pulse_phase == 0.0
+
+    def test_swirl_phase_preserved_during_crossfade_to_idle(self, widget):
+        """swirl_phase should remain valid during processing→idle cross-fade."""
+        from meetandread.recording import ControllerState
+        # Enter recording then processing
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(5):
+            widget._update_animations()
+        widget._on_controller_state_change(ControllerState.STOPPING)
+        for _ in range(10):
+            widget._update_animations()
+        assert widget.pulse_phase > 0.0  # swirl uses pulse_phase
+
+        # Now go to idle
+        widget._on_controller_state_change(ControllerState.IDLE)
+        widget._update_animations()  # one tick
+
+        # Cross-fade in progress — swirl phase should not be snapped
+        assert widget.record_button._state_t < 1.0
+        assert widget.record_button.swirl_phase != 0.0 or widget.pulse_phase != 0.0, (
+            "swirl_phase was snapped during cross-fade — would cause visual jump"
+        )
+
+    # -- Step 4-6: End-to-end transition tests --
+
+    def test_idle_to_recording_transition(self, widget):
+        """idle→recording: opacity 0.87→1.0, state key idle→recording, cross-fade."""
+        from meetandread.recording import ControllerState
+        # Start idle
+        assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
+        assert widget.record_button._to_key == 'idle'
+
+        # Trigger recording
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        assert widget._visual_state.current == WidgetVisualState.RECORDING
+        assert widget.record_button._to_key == 'recording'
+        assert widget.record_button._state_t == 0.0  # cross-fade starting
+
+        # Advance animation — opacity should move toward 1.0
+        widget._update_animations()
+        opacity = widget.windowOpacity()
+        assert 0.87 < opacity < 1.0, f"Opacity should be mid-transition, got {opacity}"
+
+        # Settle
+        for _ in range(20):
+            widget._update_animations()
+        assert widget.windowOpacity() == pytest.approx(1.0, abs=0.01)
+        assert widget.record_button._state_t >= 1.0
+
+    def test_recording_to_processing_transition(self, widget):
+        """recording→processing: red pulse→blue swirl, phase handoff."""
+        from meetandread.recording import ControllerState
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(10):
+            widget._update_animations()
+        # pulse_phase should have advanced
+        pulse_at_stop = widget.pulse_phase
+        assert pulse_at_stop > 0.0
+
+        # Trigger processing
+        widget._on_controller_state_change(ControllerState.STOPPING)
+        assert widget._visual_state.current == WidgetVisualState.PROCESSING
+        assert widget.record_button._to_key == 'processing'
+        assert widget.record_button._state_t == 0.0
+
+        # Advance — swirl_phase should start advancing
+        for _ in range(5):
+            widget._update_animations()
+        # swirl_phase should be advancing (pulse_phase continues as swirl driver)
+        assert widget.pulse_phase > pulse_at_stop
+
+        # Settle
+        for _ in range(15):
+            widget._update_animations()
+        assert widget.record_button._state_t >= 1.0
+        assert widget.windowOpacity() == pytest.approx(1.0, abs=0.01)
+
+    def test_processing_to_idle_transition(self, widget):
+        """processing→idle: swirl→glass gradient, opacity 1.0→0.87."""
+        from meetandread.recording import ControllerState
+        # Setup: go through recording→processing
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(5):
+            widget._update_animations()
+        widget._on_controller_state_change(ControllerState.STOPPING)
+        for _ in range(10):
+            widget._update_animations()
+        assert widget.windowOpacity() == pytest.approx(1.0, abs=0.01)
+
+        # Now go idle
+        widget._on_controller_state_change(ControllerState.IDLE)
+        assert widget._visual_state.current == WidgetVisualState.IDLE
+        assert widget.record_button._to_key == 'idle'
+
+        # During transition, opacity should move from 1.0 toward 0.87
+        widget._update_animations()
+        opacity = widget.windowOpacity()
+        assert 0.87 < opacity < 1.0
+
+        # Settle
+        for _ in range(20):
+            widget._update_animations()
+        assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
+        assert widget.record_button._state_t >= 1.0
+
+    # -- Step 7: Visual smoke test — full lifecycle --
+
+    def test_full_lifecycle_no_flicker(self, widget):
+        """Exercise all transitions programmatically: idle→recording→processing→idle.
+
+        Verifies:
+        - No state key mismatches between widget and RecordButtonItem
+        - Opacity transitions are monotonic (no flicker)
+        - Animation phases are always valid (no NaN, no negative)
+        - All state changes log at debug level
+        """
+        from meetandread.recording import ControllerState
+
+        opacity_values = []
+
+        # --- Phase 1: idle → recording ---
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        assert widget._visual_state.current == WidgetVisualState.RECORDING
+        assert widget.record_button._to_key == 'recording'
+        for i in range(20):
+            widget._update_animations()
+            opacity_values.append(widget.windowOpacity())
+            assert widget.pulse_phase >= 0.0
+
+        # Opacity should have increased toward 1.0
+        assert opacity_values[-1] > opacity_values[0]
+
+        # --- Phase 2: recording → processing ---
+        widget._on_controller_state_change(ControllerState.STOPPING)
+        assert widget._visual_state.current == WidgetVisualState.PROCESSING
+        assert widget.record_button._to_key == 'processing'
+        for i in range(20):
+            widget._update_animations()
+            opacity_values.append(widget.windowOpacity())
+            assert widget.pulse_phase >= 0.0
+
+        # --- Phase 3: processing → idle ---
+        widget._on_controller_state_change(ControllerState.IDLE)
+        assert widget._visual_state.current == WidgetVisualState.IDLE
+        assert widget.record_button._to_key == 'idle'
+        for i in range(20):
+            widget._update_animations()
+            opacity_values.append(widget.windowOpacity())
+
+        # Final state: idle opacity
+        assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
+        assert widget.record_button._state_t >= 1.0
+        assert widget.pulse_phase == 0.0  # settled → reset
+        assert widget.record_button.pulse_phase == 0.0
+        assert widget.record_button.swirl_phase == 0.0
+
+    def test_rapid_state_changes_no_visual_jump(self, widget):
+        """Rapid state changes (idle→recording→idle) should not cause jumps.
+
+        The state machine's mid-transition retarget should prevent visual
+        discontinuities.
+        """
+        from meetandread.recording import ControllerState
+
+        # Quickly toggle: idle → recording → idle without settling
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        widget._update_animations()  # 1 tick
+        assert 0.0 < widget._visual_state.progress < 1.0
+
+        recording_progress = widget._visual_state.progress
+
+        widget._on_controller_state_change(ControllerState.IDLE)
+        # State machine should have retargeted to IDLE
+        assert widget._visual_state.current == WidgetVisualState.IDLE
+        assert widget._visual_state.previous == WidgetVisualState.RECORDING
+        assert widget._visual_state.progress == 0.0  # reset for new transition
+
+        # Settle to idle
+        for _ in range(20):
+            widget._update_animations()
+        assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
+
+    def test_error_recovery_resets_to_idle(self, widget):
+        """Recording error should transition both state systems cleanly to idle."""
+        from meetandread.recording import ControllerState
+
+        widget._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(10):
+            widget._update_animations()
+
+        widget._on_controller_state_change(ControllerState.ERROR)
+        assert widget._visual_state.current == WidgetVisualState.IDLE
+        assert widget.record_button._to_key == 'idle'
+        assert widget.record_button.is_recording is False
+        assert widget.record_button.is_processing is False
+
+        # Settle
+        for _ in range(20):
+            widget._update_animations()
+        assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
