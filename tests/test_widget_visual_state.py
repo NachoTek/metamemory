@@ -21,6 +21,7 @@ from PyQt6.QtCore import QPointF
 from meetandread.widgets.main_widget import (
     WidgetVisualState,
     _WidgetVisualStateMachine,
+    RecordButtonItem,
 )
 
 
@@ -649,3 +650,78 @@ class TestIntegratedStateTransitions:
         for _ in range(20):
             widget._update_animations()
         assert widget.windowOpacity() == pytest.approx(0.87, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# T02 (S02): Orbit configuration tests for RecordButtonItem._ORBITS
+# ---------------------------------------------------------------------------
+
+class TestOrbitConfig:
+    """Verify the data-driven orbit configuration used for the 'processing'
+    swirl animation has correct structure and produces visual stagger."""
+
+    REQUIRED_KEYS = {"radius_frac", "speed_mult", "size", "alpha", "offset"}
+
+    # -- Structure ------------------------------------------------------------
+
+    def test_orbit_config_structure(self):
+        """_ORBITS has 4 entries, each with all required keys."""
+        orbits = RecordButtonItem._ORBITS
+        assert len(orbits) == 4
+        for i, entry in enumerate(orbits):
+            missing = self.REQUIRED_KEYS - set(entry.keys())
+            assert not missing, f"Orbit entry {i} missing keys: {missing}"
+
+    # -- Multiple radii -------------------------------------------------------
+
+    def test_orbit_config_has_multiple_radii(self):
+        """At least 2 distinct radius_frac values for visual depth."""
+        radii = {e["radius_frac"] for e in RecordButtonItem._ORBITS}
+        assert len(radii) >= 2, (
+            f"Expected ≥2 distinct radii, got {len(radii)}: {radii}"
+        )
+
+    # -- Multiple speeds ------------------------------------------------------
+
+    def test_orbit_config_has_multiple_speeds(self):
+        """At least 2 distinct speed_mult values for varied orbital speeds."""
+        speeds = {e["speed_mult"] for e in RecordButtonItem._ORBITS}
+        assert len(speeds) >= 2, (
+            f"Expected ≥2 distinct speeds, got {len(speeds)}: {speeds}"
+        )
+
+    # -- Angular positions differ at same phase --------------------------------
+
+    def test_orbit_dots_at_different_positions(self):
+        """At a fixed swirl_phase, dots should occupy different angles
+        due to different speed_mult and offset values."""
+        import math
+        phase = 1.0
+        angles = [
+            phase * e["speed_mult"] + e["offset"]
+            for e in RecordButtonItem._ORBITS
+        ]
+        # Normalise to [0, 2π) for comparison
+        normed = [a % (2 * math.pi) for a in angles]
+        # At least 2 dots should be at different angular positions
+        assert len(set(f"{a:.4f}" for a in normed)) >= 2, (
+            f"All dots at same angle: {normed}"
+        )
+
+    # -- Speed multiplier produces stagger ------------------------------------
+
+    def test_orbit_speed_multiplier_derivation(self):
+        """For each orbit entry, angle = phase * speed_mult + offset should
+        differ from the identity (phase * 1.0 + 0.0) for at least some entries,
+        proving that speed_mult creates visual stagger rather than uniform motion."""
+        phase = 2.5  # arbitrary non-trivial phase
+        identity_angle = phase * 1.0 + 0.0
+        staggered_count = 0
+        for e in RecordButtonItem._ORBITS:
+            angle = phase * e["speed_mult"] + e["offset"]
+            if abs(angle - identity_angle) > 0.01:
+                staggered_count += 1
+        assert staggered_count >= 1, (
+            "No orbit entries produce angles different from identity — "
+            "speed_mult/offset are not creating visual stagger"
+        )
