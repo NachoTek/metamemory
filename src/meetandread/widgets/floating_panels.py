@@ -26,6 +26,13 @@ from meetandread.hardware.recommender import ModelRecommender
 from meetandread.performance.monitor import ResourceMonitor, ResourceSnapshot
 from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
 from meetandread.performance.wer import calculate_wer
+from meetandread.widgets.theme import (
+    current_palette, DARK_PALETTE,
+    panel_base_css, title_css, header_button_css, tab_widget_css,
+    text_area_css, status_label_css, splitter_css, list_widget_css,
+    detail_header_css, action_button_css, context_menu_css, dialog_css,
+    badge_css, resize_grip_css, legend_overlay_css, info_label_css,
+)
 
 import logging
 
@@ -112,14 +119,7 @@ class FloatingTranscriptPanel(QWidget):
         self.setMinimumSize(350, 300)
         self.setMaximumSize(800, 900)
         
-        # Style
-        self.setStyleSheet("""
-            FloatingTranscriptPanel {
-                background-color: #1a1a1a;
-                border: 2px solid #444;
-                border-radius: 10px;
-            }
-        """)
+        # Style — applied via _apply_theme() at end of __init__
         
         # Layout
         layout = QVBoxLayout(self)
@@ -131,41 +131,13 @@ class FloatingTranscriptPanel(QWidget):
         header_layout.setSpacing(5)
         
         # Title bar (clickable for dragging)
-        title = QLabel("Live Transcript")
-        title.setStyleSheet("""
-            QLabel {
-                color: #4CAF50;
-                font-weight: bold;
-                font-size: 14px;
-                padding: 5px;
-            }
-        """)
-        header_layout.addWidget(title)
+        self._title_label = QLabel("Live Transcript")
+        header_layout.addWidget(self._title_label)
         header_layout.addStretch()
         
         # Legend toggle button (?)
         self._legend_btn = QPushButton("?")
         self._legend_btn.setFixedSize(24, 24)
-        self._legend_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333;
-                color: #4CAF50;
-                border: 1px solid #555;
-                border-radius: 12px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #4CAF50;
-            }
-            QPushButton:checked {
-                background-color: #4CAF50;
-                color: #fff;
-                border-color: #4CAF50;
-            }
-        """)
         self._legend_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._legend_btn.setToolTip("Confidence legend")
         self._legend_btn.setCheckable(True)
@@ -173,27 +145,12 @@ class FloatingTranscriptPanel(QWidget):
         header_layout.addWidget(self._legend_btn)
         
         # Close button
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333;
-                color: #fff;
-                border: 1px solid #555;
-                border-radius: 12px;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background-color: #F44336;
-                border-color: #F44336;
-            }
-        """)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setToolTip("Close panel")
-        close_btn.clicked.connect(self.hide_panel)
-        header_layout.addWidget(close_btn)
+        self._close_btn = QPushButton("×")
+        self._close_btn.setFixedSize(24, 24)
+        self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._close_btn.setToolTip("Close panel")
+        self._close_btn.clicked.connect(self.hide_panel)
+        header_layout.addWidget(self._close_btn)
         
         layout.addLayout(header_layout)
         
@@ -201,31 +158,6 @@ class FloatingTranscriptPanel(QWidget):
         # Tab widget — Live and History tabs
         # ------------------------------------------------------------------
         self._tab_widget = QTabWidget()
-        self._tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #444;
-                border-radius: 5px;
-                background-color: #1a1a1a;
-            }
-            QTabBar::tab {
-                background-color: #2a2a2a;
-                color: #aaa;
-                padding: 6px 14px;
-                border: 1px solid #444;
-                border-bottom: none;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: #333;
-                color: #4CAF50;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover {
-                background-color: #3a3a3a;
-            }
-        """)
         layout.addWidget(self._tab_widget)
 
         # ------------------------------------------------------------------
@@ -239,17 +171,6 @@ class FloatingTranscriptPanel(QWidget):
         # Text edit for transcript
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
-        self.text_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #2a2a2a;
-                color: #fff;
-                border: none;
-                border-radius: 5px;
-                padding: 8px;
-                font-size: 13px;
-                line-height: 1.4;
-            }
-        """)
         self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
         # Handle anchor clicks on speaker labels (signal only on QTextBrowser)
         self.text_edit.setMouseTracking(True)
@@ -259,13 +180,6 @@ class FloatingTranscriptPanel(QWidget):
 
         # Status label
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #888;
-                font-size: 11px;
-                padding: 3px;
-            }
-        """)
         live_layout.addWidget(self.status_label)
 
         self._tab_widget.addTab(live_tab, "Live")
@@ -278,43 +192,15 @@ class FloatingTranscriptPanel(QWidget):
         history_layout.setContentsMargins(0, 0, 0, 0)
         history_layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #444;
-                height: 3px;
-            }
-        """)
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Top: recording list
         self._history_list = QListWidget()
-        self._history_list.setStyleSheet("""
-            QListWidget {
-                background-color: #2a2a2a;
-                color: #ddd;
-                border: none;
-                border-radius: 5px;
-                font-size: 12px;
-                padding: 4px;
-                outline: none;
-            }
-            QListWidget::item {
-                padding: 6px 8px;
-                border-bottom: 1px solid #333;
-            }
-            QListWidget::item:selected {
-                background-color: #37474F;
-                color: #fff;
-            }
-            QListWidget::item:hover {
-                background-color: #2f3f3f;
-            }
-        """)
         self._history_list.itemClicked.connect(self._on_history_item_clicked)
         # Enable context menu on history items
         self._history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._history_list.customContextMenuRequested.connect(self._on_history_context_menu)
-        splitter.addWidget(self._history_list)
+        self._splitter.addWidget(self._history_list)
 
         # Bottom section: detail header bar + transcript viewer
         viewer_container = QWidget()
@@ -324,13 +210,6 @@ class FloatingTranscriptPanel(QWidget):
 
         # Detail header bar with Delete button (hidden until selection)
         self._detail_header = QFrame()
-        self._detail_header.setStyleSheet("""
-            QFrame {
-                background-color: #252525;
-                border-bottom: 1px solid #444;
-                border-radius: 0px;
-            }
-        """)
         detail_header_layout = QHBoxLayout(self._detail_header)
         detail_header_layout.setContentsMargins(6, 2, 6, 2)
         detail_header_layout.setSpacing(4)
@@ -339,29 +218,6 @@ class FloatingTranscriptPanel(QWidget):
 
         self._scrub_btn = QPushButton("🔄 Scrub")
         self._scrub_btn.setFixedHeight(26)
-        self._scrub_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a2a3a;
-                color: #4FC3F7;
-                border: 1px solid #2a4a6a;
-                border-radius: 4px;
-                padding: 2px 10px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2a3a4a;
-                border-color: #4FC3F7;
-            }
-            QPushButton:pressed {
-                background-color: #102030;
-            }
-            QPushButton:disabled {
-                background-color: #222;
-                color: #555;
-                border-color: #333;
-            }
-        """)
         self._scrub_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._scrub_btn.setToolTip("Re-transcribe with a different model")
         self._scrub_btn.clicked.connect(self._on_scrub_clicked)
@@ -369,24 +225,6 @@ class FloatingTranscriptPanel(QWidget):
 
         self._delete_btn = QPushButton("🗑 Delete")
         self._delete_btn.setFixedHeight(26)
-        self._delete_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3a1a1a;
-                color: #F44336;
-                border: 1px solid #6a2a2a;
-                border-radius: 4px;
-                padding: 2px 10px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #4a1a1a;
-                border-color: #F44336;
-            }
-            QPushButton:pressed {
-                background-color: #2a1010;
-            }
-        """)
         self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._delete_btn.setToolTip("Delete this recording")
         self._delete_btn.clicked.connect(self._on_delete_btn_clicked)
@@ -398,17 +236,6 @@ class FloatingTranscriptPanel(QWidget):
         # Transcript viewer (read-only, supports anchor clicks)
         self._history_viewer = QTextBrowser()
         self._history_viewer.setReadOnly(True)
-        self._history_viewer.setStyleSheet("""
-            QTextBrowser {
-                background-color: #2a2a2a;
-                color: #fff;
-                border: none;
-                border-radius: 5px;
-                padding: 8px;
-                font-size: 13px;
-                line-height: 1.4;
-            }
-        """)
         self._history_viewer.setFrameShape(QFrame.Shape.NoFrame)
         self._history_viewer.setPlaceholderText("Select a recording to view its transcript")
         self._history_viewer.setOpenExternalLinks(False)
@@ -416,12 +243,12 @@ class FloatingTranscriptPanel(QWidget):
         self._history_viewer.anchorClicked.connect(self._on_history_anchor_clicked)
         viewer_layout.addWidget(self._history_viewer)
 
-        splitter.addWidget(viewer_container)
+        self._splitter.addWidget(viewer_container)
 
         # 40% list / 60% viewer
-        splitter.setSizes([160, 240])
+        self._splitter.setSizes([160, 240])
 
-        history_layout.addWidget(splitter)
+        history_layout.addWidget(self._splitter)
         self._tab_widget.addTab(history_tab, "History")
 
         # Connect tab change to refresh history when switching to it
@@ -478,6 +305,19 @@ class FloatingTranscriptPanel(QWidget):
         
         # Empty state tracking
         self._has_content: bool = False
+
+        # Apply initial theme to all widgets
+        self._apply_theme()
+
+        # Connect to desktop theme changes for live re-theming
+        try:
+            from PyQt6.QtGui import QGuiApplication
+            hints = QGuiApplication.styleHints()
+            if hints is not None:
+                hints.colorSchemeChanged.connect(lambda: self._apply_theme())
+        except (ImportError, RuntimeError):
+            pass
+
         self._show_empty_state()
     
     # ------------------------------------------------------------------
@@ -487,14 +327,6 @@ class FloatingTranscriptPanel(QWidget):
     def _create_legend_overlay(self) -> None:
         """Build the confidence legend overlay positioned over the text edit area."""
         self._legend_overlay = QFrame(self.text_edit)
-        self._legend_overlay.setStyleSheet("""
-            QFrame {
-                background-color: rgba(42, 42, 42, 230);
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 8px;
-            }
-        """)
         self._legend_overlay.setFixedSize(220, 140)
 
         # Layout
@@ -503,18 +335,18 @@ class FloatingTranscriptPanel(QWidget):
         overlay_layout.setSpacing(4)
 
         # Title
-        title = QLabel("Confidence Levels")
-        title.setStyleSheet("color: #fff; font-weight: bold; font-size: 12px; border: none;")
-        overlay_layout.addWidget(title)
+        self._legend_title = QLabel("Confidence Levels")
+        overlay_layout.addWidget(self._legend_title)
 
         # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: #555; border: none;")
-        overlay_layout.addWidget(sep)
+        self._legend_sep = QFrame()
+        self._legend_sep.setFrameShape(QFrame.Shape.HLine)
+        self._legend_sep.setFixedHeight(1)
+        overlay_layout.addWidget(self._legend_sep)
 
         # Legend rows from canonical source
+        self._legend_range_labels: list = []
+        self._legend_desc_labels: list = []
         for item in get_confidence_legend():
             row = QHBoxLayout()
             row.setSpacing(6)
@@ -529,14 +361,14 @@ class FloatingTranscriptPanel(QWidget):
 
             # Range text
             range_label = QLabel(item.range_str)
-            range_label.setStyleSheet("color: #fff; font-size: 11px; border: none;")
             range_label.setFixedWidth(50)
             row.addWidget(range_label)
+            self._legend_range_labels.append(range_label)
 
             # Description
             desc_label = QLabel(item.description)
-            desc_label.setStyleSheet("color: #aaa; font-size: 11px; border: none;")
             row.addWidget(desc_label)
+            self._legend_desc_labels.append(desc_label)
 
             row.addStretch()
             overlay_layout.addLayout(row)
@@ -552,24 +384,6 @@ class FloatingTranscriptPanel(QWidget):
     def _create_new_content_badge(self) -> None:
         """Build the '↓ N new' badge that appears when auto-scroll is paused."""
         self._new_content_badge = QPushButton("↓ 0 new", self.text_edit)
-        self._new_content_badge.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(30, 30, 30, 210);
-                color: #ffffff;
-                border: 1px solid #666;
-                border-radius: 12px;
-                padding: 4px 14px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(60, 60, 60, 230);
-                border: 1px solid #888;
-            }
-            QPushButton:pressed {
-                background-color: rgba(80, 80, 80, 240);
-            }
-        """)
         self._new_content_badge.setFixedSize(120, 32)
         self._new_content_badge.setCursor(Qt.CursorShape.PointingHandCursor)
         self._new_content_badge.clicked.connect(self._on_badge_clicked)
@@ -580,15 +394,6 @@ class FloatingTranscriptPanel(QWidget):
         self._resize_grip = QSizeGrip(self)
         self._resize_grip.setFixedSize(16, 16)
         self._resize_grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        self._resize_grip.setStyleSheet("""
-            QSizeGrip {
-                background-color: rgba(255, 255, 255, 60);
-                border-radius: 3px;
-            }
-            QSizeGrip:hover {
-                background-color: rgba(255, 255, 255, 120);
-            }
-        """)
         self._resize_grip.show()
 
     def _position_new_content_badge(self) -> None:
@@ -697,11 +502,73 @@ class FloatingTranscriptPanel(QWidget):
     def _show_empty_state(self) -> None:
         """Show a friendly placeholder in the transcript area when no content exists."""
         if not self._has_content:
+            p = current_palette()
             self.text_edit.setHtml(
-                '<div style="color: #555; text-align: center; margin-top: 80px;">'
+                f'<div style="color: {p.text_tertiary}; text-align: center; margin-top: 80px;">'
                 'Transcription will appear here...'
                 '</div>'
             )
+
+    # ------------------------------------------------------------------
+    # Adaptive theme
+    # ------------------------------------------------------------------
+
+    def _apply_theme(self) -> None:
+        """Apply theme-aware stylesheets to all panel widgets.
+
+        Idempotent and cheap — just re-sets stylesheets from the current
+        palette.  Called once at end of __init__ and on desktop theme change.
+        """
+        p = current_palette()
+        self._current_palette = p
+
+        # Panel base
+        self.setStyleSheet(panel_base_css(p, "FloatingTranscriptPanel"))
+
+        # Header widgets
+        self._title_label.setStyleSheet(title_css(p))
+        self._legend_btn.setStyleSheet(header_button_css(p, "legend"))
+        self._close_btn.setStyleSheet(header_button_css(p, "close"))
+
+        # Tabs
+        self._tab_widget.setStyleSheet(tab_widget_css(p))
+
+        # Live tab — text area and status
+        self.text_edit.setStyleSheet(text_area_css(p))
+        self.status_label.setStyleSheet(status_label_css(p))
+
+        # History tab — splitter, list, detail header, buttons, viewer
+        self._splitter.setStyleSheet(splitter_css(p))
+        self._history_list.setStyleSheet(list_widget_css(p))
+        self._detail_header.setStyleSheet(detail_header_css(p))
+        self._scrub_btn.setStyleSheet(action_button_css(p, "scrub"))
+        self._delete_btn.setStyleSheet(action_button_css(p, "delete"))
+        self._history_viewer.setStyleSheet(text_area_css(p))
+
+        # Legend overlay
+        legend_styles = legend_overlay_css(p)
+        self._legend_overlay.setStyleSheet(legend_styles["overlay"])
+        if hasattr(self, "_legend_title"):
+            self._legend_title.setStyleSheet(legend_styles["title"])
+        if hasattr(self, "_legend_sep"):
+            self._legend_sep.setStyleSheet(legend_styles["separator"])
+        for lbl in getattr(self, "_legend_range_labels", []):
+            lbl.setStyleSheet(legend_styles["range_label"])
+        for lbl in getattr(self, "_legend_desc_labels", []):
+            lbl.setStyleSheet(legend_styles["desc_label"])
+
+        # Badge
+        self._new_content_badge.setStyleSheet(badge_css(p))
+
+        # Resize grip
+        self._resize_grip.setStyleSheet(resize_grip_css(p))
+
+        # Re-render empty state with updated text colour
+        if not self._has_content:
+            self._show_empty_state()
+
+        scheme_name = "dark" if p is DARK_PALETTE else "light"
+        logger.info("Applied %s theme to FloatingTranscriptPanel", scheme_name)
 
     # ------------------------------------------------------------------
     # Fade transition helpers
@@ -715,6 +582,8 @@ class FloatingTranscriptPanel(QWidget):
         """Animate window opacity from 0 → 1 over 150ms, then show."""
         if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
             self._fade_timer.stop()
+        # Re-apply theme on show (picks up any desktop theme change while hidden)
+        self._apply_theme()
         self.setWindowOpacity(0.0)
         self.show()
         self.raise_()
@@ -1016,23 +885,8 @@ class FloatingTranscriptPanel(QWidget):
             return
 
         menu = QMenu(self._history_list)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2a2a2a;
-                color: #ddd;
-                border: 1px solid #555;
-                border-radius: 5px;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #3a1a1a;
-                color: #F44336;
-            }
-        """)
+        p = current_palette()
+        menu.setStyleSheet(context_menu_css(p, accent_color=p.danger))
 
         scrub_action = menu.addAction("🔄  Scrub Recording")
         delete_action = menu.addAction("🗑  Delete Recording")
@@ -1177,15 +1031,8 @@ class FloatingTranscriptPanel(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle("Scrub Recording")
         dialog.setFixedSize(340, 180)
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: #1a1a1a;
-            }
-            QLabel {
-                color: #ddd;
-                font-size: 12px;
-            }
-        """)
+        p = current_palette()
+        dialog.setStyleSheet(dialog_css(p))
 
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -1193,42 +1040,12 @@ class FloatingTranscriptPanel(QWidget):
 
         # Title label
         title_label = QLabel("Re-transcribe with a different model:")
-        title_label.setStyleSheet("font-weight: bold; color: #4FC3F7; font-size: 13px;")
+        title_label.setStyleSheet(f"font-weight: bold; color: {p.info}; font-size: 13px;")
         layout.addWidget(title_label)
 
         # Model combo
         combo = QComboBox()
-        combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2a2a2a;
-                color: #ddd;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 6px 10px;
-                font-size: 12px;
-                min-height: 24px;
-            }
-            QComboBox:hover {
-                border-color: #4FC3F7;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid #aaa;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2a2a2a;
-                color: #ddd;
-                border: 1px solid #555;
-                selection-background-color: #37474F;
-                selection-color: #fff;
-            }
-        """)
+        combo.setStyleSheet(combo_box_css(p, accent_color=p.info))
 
         # Populate with models + WER
         try:
@@ -1263,24 +1080,7 @@ class FloatingTranscriptPanel(QWidget):
         btn_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
         )
-        btn_box.setStyleSheet("""
-            QPushButton {
-                background-color: #333;
-                color: #ddd;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 6px 16px;
-                font-size: 12px;
-                min-width: 70px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #4FC3F7;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-        """)
+        btn_box.setStyleSheet(action_button_css(p, "dialog"))
         btn_box.accepted.connect(dialog.accept)
         btn_box.rejected.connect(dialog.reject)
         layout.addWidget(btn_box)
@@ -1445,23 +1245,24 @@ class FloatingTranscriptPanel(QWidget):
         if not hasattr(self, '_scrub_accept_btn'):
             self._scrub_accept_btn = QPushButton("✓ Accept")
             self._scrub_accept_btn.setFixedHeight(26)
-            self._scrub_accept_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #1B5E20;
-                    color: #A5D6A7;
-                    border: 1px solid #2E7D32;
+            p = current_palette()
+            self._scrub_accept_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p.surface};
+                    color: {p.accent};
+                    border: 1px solid {p.accent};
                     border-radius: 4px;
                     padding: 2px 10px;
                     font-size: 11px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #2E7D32;
-                    border-color: #4CAF50;
-                }
-                QPushButton:pressed {
-                    background-color: #0D3010;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {p.surface_hover};
+                    border-color: {p.accent};
+                }}
+                QPushButton:pressed {{
+                    background-color: {p.surface};
+                }}
             """)
             self._scrub_accept_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._scrub_accept_btn.clicked.connect(self._on_scrub_accept)
@@ -1469,24 +1270,7 @@ class FloatingTranscriptPanel(QWidget):
             # Create Reject button
             self._scrub_reject_btn = QPushButton("✗ Reject")
             self._scrub_reject_btn.setFixedHeight(26)
-            self._scrub_reject_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #3a1a1a;
-                    color: #F44336;
-                    border: 1px solid #6a2a2a;
-                    border-radius: 4px;
-                    padding: 2px 10px;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #4a1a1a;
-                    border-color: #F44336;
-                }
-                QPushButton:pressed {
-                    background-color: #2a1010;
-                }
-            """)
+            self._scrub_reject_btn.setStyleSheet(action_button_css(p, "delete"))
             self._scrub_reject_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._scrub_reject_btn.clicked.connect(self._on_scrub_reject)
 
