@@ -959,3 +959,207 @@ def aetheric_combo_box_css(p: ThemePalette) -> str:
             selection-color: {AETHERIC_RED};
         }}
     """
+
+
+# ---------------------------------------------------------------------------
+# Aetheric History page helpers — scoped selectors for History widgets
+# ---------------------------------------------------------------------------
+
+def aetheric_history_list_css(p: ThemePalette) -> str:
+    """Aetheric Glass history recording list.
+
+    Glass-row items with translucent backgrounds, red hover accent,
+    and directional border cues. Selected items use the red active bg.
+
+    Object name selector: ``QListWidget#AethericHistoryList``
+
+    Args:
+        p: Active theme palette.
+
+    Returns:
+        QSS string for the history recording list.
+    """
+    return f"""
+        QListWidget#AethericHistoryList {{
+            background-color: transparent;
+            color: {AETHERIC_NAV_INACTIVE_TEXT};
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            padding: 4px;
+            outline: none;
+        }}
+        QListWidget#AethericHistoryList::item {{
+            background-color: {AETHERIC_GLASS_ROW_BG};
+            border: 1px solid transparent;
+            border-top: 1px solid {AETHERIC_BORDER_LIGHT};
+            border-left: 1px solid {AETHERIC_BORDER_LIGHT};
+            border-bottom: 1px solid {AETHERIC_BORDER_DARK};
+            border-right: 1px solid {AETHERIC_BORDER_DARK};
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 2px 4px;
+        }}
+        QListWidget#AethericHistoryList::item:selected {{
+            background-color: {AETHERIC_NAV_ACTIVE_BG};
+            color: {AETHERIC_RED};
+            border: 1px solid {AETHERIC_NAV_ACTIVE_GLOW};
+        }}
+        QListWidget#AethericHistoryList::item:hover {{
+            background-color: {AETHERIC_NAV_HOVER_BG};
+            border: 1px solid {AETHERIC_RED};
+        }}
+    """
+
+
+def aetheric_history_viewer_css(p: ThemePalette) -> str:
+    """Aetheric Glass history transcript viewer.
+
+    Transparent text browser with Aetheric text colour and subtle
+    directional border for visual separation from the list.
+
+    Object name selector: ``QTextBrowser#AethericHistoryViewer``
+
+    Args:
+        p: Active theme palette.
+
+    Returns:
+        QSS string for the transcript viewer.
+    """
+    return f"""
+        QTextBrowser#AethericHistoryViewer {{
+            background-color: transparent;
+            color: {AETHERIC_NAV_INACTIVE_TEXT};
+            border: none;
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 13px;
+        }}
+    """
+
+
+def aetheric_history_splitter_css(p: ThemePalette) -> str:
+    """Aetheric Glass splitter handle between history list and viewer.
+
+    Uses the Aetheric border-dark token for a subtle separator that
+    matches the directional border convention.
+
+    Object name selector: ``QSplitter#AethericHistorySplitter``
+
+    Args:
+        p: Active theme palette.
+
+    Returns:
+        QSS string for the history splitter handle.
+    """
+    return f"""
+        QSplitter#AethericHistorySplitter::handle {{
+            background-color: {AETHERIC_BORDER_DARK};
+            width: 2px;
+            margin: 4px 2px;
+        }}
+    """
+
+
+def aetheric_history_header_css(p: ThemePalette) -> str:
+    """Aetheric Glass history detail header frame.
+
+    Transparent background with a bottom directional border that
+    visually separates the header actions from the content below.
+
+    Object name selector: ``QFrame#AethericHistoryHeader``
+
+    Args:
+        p: Active theme palette.
+
+    Returns:
+        QSS string for the detail header frame.
+    """
+    return f"""
+        QFrame#AethericHistoryHeader {{
+            background-color: transparent;
+            border: none;
+            border-bottom: 1px solid {AETHERIC_BORDER_DARK};
+            padding: 4px 8px;
+        }}
+    """
+
+
+def aetheric_history_action_button_css(p: ThemePalette) -> str:
+    """Aetheric Glass action buttons for the History page.
+
+    Supports four action variants driven by a Qt dynamic property
+    ``action`` on the button:
+
+    - ``action="scrub"``   — cyan/info tint
+    - ``action="delete"``  — red/danger tint
+    - ``action="accept"``  — green/accent tint
+    - ``action="reject"``  — purple/secondary tint
+
+    The base style uses glass-row background with red hover accent.
+    Variants are applied via ``QPushButton[action="..."]`` selectors
+    so each button's action property controls its colour scheme.
+
+    Object name selector: ``QPushButton#AethericHistoryActionButton``
+
+    Args:
+        p: Active theme palette.
+
+    Returns:
+        QSS string for all action button variants.
+    """
+    return f"""
+        QPushButton#AethericHistoryActionButton {{
+            background-color: {AETHERIC_GLASS_ROW_BG};
+            color: {AETHERIC_NAV_INACTIVE_TEXT};
+            border: 1px solid transparent;
+            border-top: 1px solid {AETHERIC_BORDER_LIGHT};
+            border-left: 1px solid {AETHERIC_BORDER_LIGHT};
+            border-bottom: 1px solid {AETHERIC_BORDER_DARK};
+            border-right: 1px solid {AETHERIC_BORDER_DARK};
+            border-radius: 8px;
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }}
+        QPushButton#AethericHistoryActionButton:hover {{
+            background-color: {AETHERIC_NAV_HOVER_BG};
+            border: 1px solid {AETHERIC_RED};
+            color: {AETHERIC_RED};
+        }}
+        QPushButton#AethericHistoryActionButton:pressed {{
+            background-color: {AETHERIC_NAV_ACTIVE_BG};
+        }}
+        QPushButton#AethericHistoryActionButton:disabled {{
+            color: {AETHERIC_BORDER_DARK};
+            border-color: {AETHERIC_BORDER_DARK};
+        }}
+        QPushButton#AethericHistoryActionButton[action="scrub"] {{
+            color: {AETHERIC_CYAN};
+        }}
+        QPushButton#AethericHistoryActionButton[action="scrub"]:hover {{
+            border-color: {AETHERIC_CYAN};
+            color: {AETHERIC_CYAN};
+        }}
+        QPushButton#AethericHistoryActionButton[action="delete"] {{
+            color: {AETHERIC_RED};
+        }}
+        QPushButton#AethericHistoryActionButton[action="delete"]:hover {{
+            border-color: {AETHERIC_RED};
+            color: {AETHERIC_RED};
+        }}
+        QPushButton#AethericHistoryActionButton[action="accept"] {{
+            color: {AETHERIC_RED};
+        }}
+        QPushButton#AethericHistoryActionButton[action="accept"]:hover {{
+            border-color: {AETHERIC_RED};
+            color: {AETHERIC_RED};
+        }}
+        QPushButton#AethericHistoryActionButton[action="reject"] {{
+            color: {AETHERIC_PURPLE};
+        }}
+        QPushButton#AethericHistoryActionButton[action="reject"]:hover {{
+            border-color: {AETHERIC_PURPLE};
+            color: {AETHERIC_PURPLE};
+        }}
+    """

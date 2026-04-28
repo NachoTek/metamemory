@@ -36,6 +36,11 @@ from meetandread.widgets.theme import (
     LIGHT_PALETTE,
     aetheric_combo_box_css,
     aetheric_dock_bay_css,
+    aetheric_history_action_button_css,
+    aetheric_history_header_css,
+    aetheric_history_list_css,
+    aetheric_history_splitter_css,
+    aetheric_history_viewer_css,
     aetheric_nav_button_css,
     aetheric_placeholder_css,
     aetheric_settings_shell_css,
@@ -306,6 +311,224 @@ class TestAethericComboBoxCss:
 
 
 # ---------------------------------------------------------------------------
+# aetheric_history_list_css
+# ---------------------------------------------------------------------------
+
+class TestAethericHistoryListCss:
+    """History recording list QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_history_list_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert "QListWidget#AethericHistoryList" in css
+
+    def test_no_bare_q_list_widget_selector(self):
+        """Primary selector must be scoped, not bare QListWidget."""
+        css = aetheric_history_list_css(DARK_PALETTE)
+        # The first occurrence should be scoped
+        assert "QListWidget#AethericHistoryList" in css
+        # Should NOT contain bare "QListWidget {" as a primary selector
+        lines = css.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("QListWidget") and "#" not in stripped:
+                # Could be ::item or similar — that's fine
+                assert "::" in stripped or stripped.startswith("QListWidget#"), (
+                    f"Found bare QListWidget selector: {stripped}"
+                )
+
+    def test_contains_glass_row_bg(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_ROW_BG in css
+
+    def test_directional_borders_on_items(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_LIGHT in css
+        assert AETHERIC_BORDER_DARK in css
+
+    def test_hover_state_with_red_accent(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert ":hover" in css
+        assert AETHERIC_RED in css
+
+    def test_selected_state_with_red_active(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert ":selected" in css
+        assert AETHERIC_NAV_ACTIVE_BG in css
+        assert AETHERIC_RED in css
+
+    def test_8px_radius(self):
+        css = aetheric_history_list_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_history_viewer_css
+# ---------------------------------------------------------------------------
+
+class TestAethericHistoryViewerCss:
+    """History transcript viewer QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_history_viewer_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_history_viewer_css(DARK_PALETTE)
+        assert "QTextBrowser#AethericHistoryViewer" in css
+
+    def test_transparent_background(self):
+        css = aetheric_history_viewer_css(DARK_PALETTE)
+        assert "background-color: transparent" in css
+
+    def test_uses_inactive_text_color(self):
+        css = aetheric_history_viewer_css(DARK_PALETTE)
+        assert AETHERIC_NAV_INACTIVE_TEXT in css
+
+    def test_no_bare_q_text_browser_selector(self):
+        """No unscoped QTextBrowser styling."""
+        css = aetheric_history_viewer_css(DARK_PALETTE)
+        assert "QTextBrowser#AethericHistoryViewer" in css
+        lines = css.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("QTextBrowser") and "#" not in stripped:
+                assert False, f"Found bare QTextBrowser selector: {stripped}"
+
+
+# ---------------------------------------------------------------------------
+# aetheric_history_splitter_css
+# ---------------------------------------------------------------------------
+
+class TestAethericHistorySplitterCss:
+    """History splitter handle QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_history_splitter_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_history_splitter_css(DARK_PALETTE)
+        assert "QSplitter#AethericHistorySplitter" in css
+
+    def test_dark_border_handle(self):
+        css = aetheric_history_splitter_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_DARK in css
+
+    def test_handle_sub_selector(self):
+        css = aetheric_history_splitter_css(DARK_PALETTE)
+        assert "::handle" in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_history_header_css
+# ---------------------------------------------------------------------------
+
+class TestAethericHistoryHeaderCss:
+    """History detail header QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_history_header_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_history_header_css(DARK_PALETTE)
+        assert "QFrame#AethericHistoryHeader" in css
+
+    def test_transparent_background(self):
+        css = aetheric_history_header_css(DARK_PALETTE)
+        assert "background-color: transparent" in css
+
+    def test_bottom_directional_border(self):
+        css = aetheric_history_header_css(DARK_PALETTE)
+        assert "border-bottom" in css
+        assert AETHERIC_BORDER_DARK in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_history_action_button_css
+# ---------------------------------------------------------------------------
+
+class TestAethericHistoryActionButtonCss:
+    """History action button QSS contract with action variants."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_history_action_button_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert "QPushButton#AethericHistoryActionButton" in css
+
+    def test_no_bare_q_push_button_selector(self):
+        """Primary selector must be scoped."""
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        lines = css.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("QPushButton") and "#" not in stripped and "[" not in stripped:
+                assert False, f"Found bare QPushButton selector: {stripped}"
+
+    def test_glass_row_bg_base(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_ROW_BG in css
+
+    def test_hover_state_with_red_accent(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert ":hover" in css
+        assert AETHERIC_RED in css
+
+    def test_directional_borders(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_LIGHT in css
+        assert AETHERIC_BORDER_DARK in css
+
+    def test_8px_radius(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+    def test_scrub_variant_uses_cyan(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert 'action="scrub"' in css
+        assert AETHERIC_CYAN in css
+
+    def test_delete_variant_uses_red(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert 'action="delete"' in css
+        assert AETHERIC_RED in css
+
+    def test_accept_variant_uses_red(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert 'action="accept"' in css
+
+    def test_reject_variant_uses_purple(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert 'action="reject"' in css
+        assert AETHERIC_PURPLE in css
+
+    def test_disabled_state(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert ":disabled" in css
+
+    def test_pressed_state(self):
+        css = aetheric_history_action_button_css(DARK_PALETTE)
+        assert ":pressed" in css
+
+
+# ---------------------------------------------------------------------------
 # Scoped selector audit — all helpers use #ObjectNames
 # ---------------------------------------------------------------------------
 
@@ -321,6 +544,11 @@ class TestAethericScopedSelectors:
             (aetheric_dock_bay_css, "QWidget#AethericDockBay"),
             (aetheric_placeholder_css, "QWidget#AethericPlaceholderRow"),
             (aetheric_combo_box_css, "QComboBox#AethericComboBox"),
+            (aetheric_history_list_css, "QListWidget#AethericHistoryList"),
+            (aetheric_history_viewer_css, "QTextBrowser#AethericHistoryViewer"),
+            (aetheric_history_splitter_css, "QSplitter#AethericHistorySplitter"),
+            (aetheric_history_header_css, "QFrame#AethericHistoryHeader"),
+            (aetheric_history_action_button_css, "QPushButton#AethericHistoryActionButton"),
         ]
         for helper, selector in helpers_and_selectors:
             css = helper(DARK_PALETTE)
