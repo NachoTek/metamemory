@@ -28,7 +28,7 @@ from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
 from meetandread.performance.wer import calculate_wer
 from meetandread.widgets.theme import (
     current_palette, DARK_PALETTE,
-    panel_base_css, title_css, header_button_css, tab_widget_css,
+    panel_base_css, glass_panel_css, title_css, header_button_css, tab_widget_css,
     text_area_css, status_label_css, splitter_css, list_widget_css,
     detail_header_css, action_button_css, context_menu_css, dialog_css,
     badge_css, resize_grip_css, legend_overlay_css, info_label_css,
@@ -115,6 +115,10 @@ class FloatingTranscriptPanel(QWidget):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool  # Don't show in taskbar
         )
+        
+        # Glass pair: translucent background matching the widget's glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         
         # Size — resizable with min/max bounds
         self.setMinimumSize(350, 300)
@@ -306,6 +310,13 @@ class FloatingTranscriptPanel(QWidget):
         
         # Empty state tracking
         self._has_content: bool = False
+        
+        # Glass pair opacity — matches the widget's glass aesthetic
+        # 0.87 = translucent idle (desktop visible behind), 1.0 = active/recording
+        self._glass_idle_opacity = 0.87
+        self._glass_active_opacity = 1.0
+        self._is_glass_active = False
+        self.setWindowOpacity(self._glass_idle_opacity)
 
         # Apply initial theme to all widgets
         self._apply_theme()
@@ -475,6 +486,7 @@ class FloatingTranscriptPanel(QWidget):
     
     def show_panel(self) -> None:
         """Show the panel with a 150ms fade-in and start auto-scroll."""
+        self._set_glass_active(True)
         self._start_fade_in()
         self.scroll_timer.start(100)  # Scroll check every 100ms
         self._recording_start_time = time.time()
@@ -487,10 +499,21 @@ class FloatingTranscriptPanel(QWidget):
     
     def hide_panel(self) -> None:
         """Hide the panel with a 150ms fade-out."""
+        self._set_glass_active(False)
         self.scroll_timer.stop()
         self._duration_timer.stop()
         self._recording_start_time = None
         self._start_fade_out()
+
+    def _set_glass_active(self, active: bool) -> None:
+        """Transition glass opacity between idle (0.87) and active (1.0).
+
+        Args:
+            active: True for recording/active state, False for idle.
+        """
+        self._is_glass_active = active
+        target = self._glass_active_opacity if active else self._glass_idle_opacity
+        self.setWindowOpacity(target)
 
     def _update_duration(self) -> None:
         """Update the status label with elapsed recording duration (mm:ss)."""
@@ -524,7 +547,7 @@ class FloatingTranscriptPanel(QWidget):
         self._current_palette = p
 
         # Panel base
-        self.setStyleSheet(panel_base_css(p, "FloatingTranscriptPanel"))
+        self.setStyleSheet(glass_panel_css(p, "FloatingTranscriptPanel"))
 
         # Header widgets
         self._title_label.setStyleSheet(title_css(p))
@@ -1974,6 +1997,13 @@ class FloatingSettingsPanel(QWidget):
             Qt.WindowType.Tool
         )
         
+        # Glass pair: translucent background matching the widget's glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        
+        # Glass opacity — matches transcript panel
+        self.setWindowOpacity(0.87)
+        
         # Size — resizable with min/max bounds
         self.setMinimumSize(280, 400)
         self.setMaximumSize(500, 800)
@@ -2230,8 +2260,8 @@ class FloatingSettingsPanel(QWidget):
         p = current_palette()
         self._current_palette = p
 
-        # Panel base
-        self.setStyleSheet(panel_base_css(p, "FloatingSettingsPanel"))
+        # Panel base — glass pair style matching transcript panel
+        self.setStyleSheet(glass_panel_css(p, "FloatingSettingsPanel"))
 
         # Header widgets
         self._title_label.setStyleSheet(title_css(p))

@@ -194,6 +194,45 @@ class TestWIDGET16:
         widget.mic_lobe.update()
 
 
+class TestWIDGET17:
+    """Transcript lobe for toggling the transcript panel."""
+
+    def test_transcript_lobe_exists(self, widget):
+        from meetandread.widgets.main_widget import TranscriptLobeItem
+        assert isinstance(widget.transcript_lobe, TranscriptLobeItem)
+
+    def test_transcript_lobe_in_scene(self, widget):
+        from meetandread.widgets.main_widget import TranscriptLobeItem
+        lobes = [item for item in widget._scene.items() if isinstance(item, TranscriptLobeItem)]
+        assert len(lobes) == 1
+
+    def test_transcript_lobe_position_differs_from_others(self, widget):
+        positions = {
+            'mic': widget.mic_lobe.pos(),
+            'system': widget.system_lobe.pos(),
+            'transcript': widget.transcript_lobe.pos(),
+            'settings': widget.settings_lobe.pos(),
+        }
+        # All four lobes should have distinct positions
+        pos_list = list(positions.values())
+        for i in range(len(pos_list)):
+            for j in range(i + 1, len(pos_list)):
+                assert pos_list[i] != pos_list[j], \
+                    f"Lobe positions overlap: {list(positions.keys())[i]} == {list(positions.keys())[j]}"
+
+    def test_transcript_lobe_toggles_panel_hide(self, widget):
+        """Clicking transcript lobe hides panel when visible."""
+        widget._floating_transcript_panel.isVisible.return_value = True
+        widget.toggle_transcript_panel()
+        widget._floating_transcript_panel.hide_panel.assert_called_once()
+
+    def test_transcript_lobe_toggles_panel_show(self, widget):
+        """Clicking transcript lobe shows panel when hidden."""
+        widget._floating_transcript_panel.isVisible.return_value = False
+        widget.toggle_transcript_panel()
+        widget._floating_transcript_panel.show_panel.assert_called_once()
+
+
 class TestWIDGET19:
     def test_recording_state_transitions(self, widget):
         widget._on_controller_state_change(ControllerState.RECORDING)

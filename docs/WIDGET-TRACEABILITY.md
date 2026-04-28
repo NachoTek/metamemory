@@ -22,7 +22,7 @@ Complete mapping of WIDGET-01 through WIDGET-32 requirements to test evidence an
 | WIDGET-14 | Mic source toggle | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET14_15::test_mic_lobe_toggles` | Toggles mic audio source on/off |
 | WIDGET-15 | System audio toggle | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET14_15::test_system_lobe_toggles` | Toggles system audio source on/off |
 | WIDGET-16 | Active/inactive lobe visual | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET16::test_locked_state`, `test_unlocked_state`, `test_active_inactive_visual` | Visual feedback per state |
-| WIDGET-17 | Third lobe for transcript access | ⚠️ Design Deviation | — | — | No dedicated transcript lobe. Panel auto-shows on recording start; toggle via settings lobe or context menu. See [WIDGET-DEVIATIONS.md](WIDGET-DEVIATIONS.md#widget-17-third-lobe-for-transcript-access) |
+| WIDGET-17 | Third lobe for transcript access | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET17::test_transcript_lobe_exists`, `test_transcript_lobe_in_scene`, `test_transcript_lobe_position_differs_from_others`, `test_transcript_lobe_toggles_panel_hide`, `test_transcript_lobe_toggles_panel_show` | Transcript lobe (document icon) at bottom-left toggles panel visibility |
 | WIDGET-18 | Transcript flows from widget | ⚠️ Design Deviation | — | — | Separate `FloatingTranscriptPanel` QWidget docks adjacent to widget. See [WIDGET-DEVIATIONS.md](WIDGET-DEVIATIONS.md#widget-18-transcript-flows-from-widget) |
 | WIDGET-19 | Recording state indicator | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET19::test_recording_state_transitions` | State machine transitions correctly |
 | WIDGET-20 | Settings lobe visibility toggle | ✅ Validated | `test_widget_requirements.py` | `TestWIDGET20::test_hides_when_visible`, `test_shows_when_hidden` | Toggles settings panel visibility |
@@ -45,8 +45,8 @@ Complete mapping of WIDGET-01 through WIDGET-32 requirements to test evidence an
 
 | Status | Count |
 |---|---|
-| ✅ Validated | 29 |
-| ⚠️ Design Deviation | 3 |
+| ✅ Validated | 30 |
+| ⚠️ Design Deviation | 2 |
 | ❌ Failed | 0 |
 | 🔲 Out of Scope | 0 |
 | **Total** | **32** |
@@ -55,9 +55,8 @@ Complete mapping of WIDGET-01 through WIDGET-32 requirements to test evidence an
 
 All deviations are intentional and documented in [WIDGET-DEVIATIONS.md](WIDGET-DEVIATIONS.md):
 
-1. **WIDGET-17** — No dedicated transcript lobe; auto-show on recording start replaces it
-2. **WIDGET-18** — Separate `FloatingTranscriptPanel` QWidget instead of integrated flow-out
-3. **WIDGET-29** — Dual-mode enhanced bold removed; standard bold formatting sufficient
+1. **WIDGET-18** — Separate `FloatingTranscriptPanel` QWidget instead of integrated flow-out
+2. **WIDGET-29** — Dual-mode enhanced bold removed; standard bold formatting sufficient
 
 ### Test Coverage Sources
 

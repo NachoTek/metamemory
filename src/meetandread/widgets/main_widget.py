@@ -295,6 +295,10 @@ to avoid clipping issues and enable proper text rendering.
         self._scene.addItem(self.mic_lobe)
         self._scene.addItem(self.system_lobe)
         
+        # Transcript lobe (toggle transcript panel)
+        self.transcript_lobe = TranscriptLobeItem(self)
+        self._scene.addItem(self.transcript_lobe)
+        
         # Settings lobe
         self.settings_lobe = SettingsLobeItem(self)
         self._scene.addItem(self.settings_lobe)
@@ -366,6 +370,9 @@ to avoid clipping issues and enable proper text rendering.
         # Position lobes on top 1/3rd of record button
         self.mic_lobe.setPos(50, 10)
         self.system_lobe.setPos(110, 10)
+        
+        # Transcript lobe at bottom-left (opposite settings at bottom-right)
+        self.transcript_lobe.setPos(15, 85)
         
         # Settings lobe overlapping bottom of record button (like input lobes on top)
         self.settings_lobe.setPos(85, 85)
@@ -1541,6 +1548,78 @@ class SettingsLobeItem(QGraphicsEllipseItem):
         if event.button() == Qt.MouseButton.LeftButton:
             if not self.parent_widget.is_dragging and not self.parent_widget._click_consumed:
                 self.parent_widget._toggle_settings_panel()
+            event.accept()
+
+
+class TranscriptLobeItem(QGraphicsEllipseItem):
+    """Transcript lobe for toggling the transcript panel visibility."""
+    
+    def __init__(self, parent_widget):
+        super().__init__(0, 0, 30, 30)
+        self.parent_widget = parent_widget
+        
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setTransformOriginPoint(15, 15)  # Center of 30×30
+        self._hovered = False
+    
+    def hoverEnterEvent(self, event):
+        """Scale up and brighten on hover."""
+        self._hovered = True
+        self.setScale(1.05)
+        self.update()
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """Revert to normal on hover leave."""
+        self._hovered = False
+        self.setScale(1.0)
+        self.update()
+        super().hoverLeaveEvent(event)
+    
+    def paint(self, painter, option, widget=None):
+        """Paint transcript lobe with document/text icon and hover glow."""
+        rect = self.rect()
+        
+        # Hover glow (subtle outer ring)
+        if self._hovered:
+            for i in range(2, 0, -1):
+                painter.setBrush(QBrush(QColor(255, 255, 255, 30 // i)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(rect.adjusted(-i * 3, -i * 3, i * 3, i * 3))
+        
+        fill_alpha = 220 if self._hovered else 180
+        fill_val = 130 if self._hovered else 100
+        painter.setBrush(QBrush(QColor(fill_val, fill_val, 220 if self._hovered else 200, fill_alpha)))
+        painter.setPen(QPen(QColor(150, 150, 255, 255), 2))
+        painter.drawEllipse(rect)
+        
+        # Draw document/text icon (rectangle with lines)
+        painter.setPen(QPen(QColor(255, 255, 255, 255), 2))
+        center = rect.center()
+        # Document body
+        doc_left = int(center.x() - 5)
+        doc_top = int(center.y() - 7)
+        doc_width = 10
+        doc_height = 14
+        painter.drawRect(doc_left, doc_top, doc_width, doc_height)
+        # Text lines inside document
+        line_left = doc_left + 2
+        line_right = doc_left + doc_width - 2
+        painter.drawLine(line_left, int(center.y() - 3), line_right, int(center.y() - 3))
+        painter.drawLine(line_left, int(center.y()), line_right, int(center.y()))
+        painter.drawLine(line_left, int(center.y() + 3), line_right, int(center.y() + 3))
+    
+    def mousePressEvent(self, event):
+        """Accept press to get release event — action fires on release."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """Toggle transcript panel on release, only if this wasn't a drag."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not self.parent_widget.is_dragging and not self.parent_widget._click_consumed:
+                self.parent_widget.toggle_transcript_panel()
             event.accept()
 
 

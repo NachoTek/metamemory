@@ -1,0 +1,328 @@
+"""Contract tests for Aetheric Glass theme helpers.
+
+Validates that the Aetheric styling contract (tokens, selectors, QSS
+structure) is stable so later tasks (T02+) can wire real widgets to it.
+If a later task removes or renames a helper/selectors these tests break.
+
+Covers:
+- Aetheric design tokens are defined with expected values
+- Each helper generates QSS with the required object-name selectors
+- Helpers accept both DARK_PALETTE and LIGHT_PALETTE without crashing
+- Key visual tokens are present (12px radius, rgba alpha, red accent,
+  directional border cues, dropdown chevron)
+- Scoped selectors use #ObjectNames to avoid style leakage
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from meetandread.widgets.theme import (
+    AETHERIC_CYAN,
+    AETHERIC_GLASS_BG,
+    AETHERIC_GLASS_ROW_BG,
+    AETHERIC_NAV_ACTIVE_BG,
+    AETHERIC_NAV_ACTIVE_GLOW,
+    AETHERIC_NAV_HOVER_BG,
+    AETHERIC_NAV_INACTIVE_TEXT,
+    AETHERIC_PURPLE,
+    AETHERIC_RADIUS,
+    AETHERIC_RED,
+    AETHERIC_SIDEBAR_WIDTH,
+    AETHERIC_BORDER_LIGHT,
+    AETHERIC_BORDER_DARK,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    aetheric_combo_box_css,
+    aetheric_dock_bay_css,
+    aetheric_nav_button_css,
+    aetheric_placeholder_css,
+    aetheric_settings_shell_css,
+    aetheric_sidebar_css,
+)
+
+
+# ---------------------------------------------------------------------------
+# Aetheric design tokens
+# ---------------------------------------------------------------------------
+
+class TestAethericDesignTokens:
+    """Aetheric design tokens have expected values from the design system."""
+
+    def test_glass_bg_is_rgba(self):
+        assert AETHERIC_GLASS_BG == "rgba(30, 29, 30, 200)"
+
+    def test_glass_row_bg_is_rgba(self):
+        assert AETHERIC_GLASS_ROW_BG == "rgba(53, 52, 54, 0.2)"
+
+    def test_sidebar_width(self):
+        assert AETHERIC_SIDEBAR_WIDTH == "256px"
+
+    def test_radius_is_12px(self):
+        assert AETHERIC_RADIUS == "12px"
+
+    def test_border_light_directional(self):
+        """Light border for top-left directional cue."""
+        assert AETHERIC_BORDER_LIGHT == "rgba(255, 255, 255, 30)"
+
+    def test_border_dark_directional(self):
+        """Dark border for bottom-right directional cue."""
+        assert AETHERIC_BORDER_DARK == "rgba(0, 0, 0, 80)"
+
+    def test_nav_active_bg(self):
+        assert AETHERIC_NAV_ACTIVE_BG == "rgba(255, 85, 69, 0.2)"
+
+    def test_nav_active_glow(self):
+        assert AETHERIC_NAV_ACTIVE_GLOW == "rgba(255, 85, 69, 0.4)"
+
+    def test_nav_inactive_text(self):
+        assert AETHERIC_NAV_INACTIVE_TEXT == "rgba(255, 255, 255, 0.4)"
+
+    def test_nav_hover_bg(self):
+        assert AETHERIC_NAV_HOVER_BG == "rgba(255, 255, 255, 0.05)"
+
+    def test_red_accent(self):
+        assert AETHERIC_RED == "#ff5545"
+
+    def test_purple_secondary(self):
+        assert AETHERIC_PURPLE == "#c9bfff"
+
+    def test_cyan_tertiary(self):
+        assert AETHERIC_CYAN == "#00dbe9"
+
+
+# ---------------------------------------------------------------------------
+# aetheric_settings_shell_css
+# ---------------------------------------------------------------------------
+
+class TestAethericSettingsShellCss:
+    """Settings shell QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash_with_either_palette(self, palette):
+        css = aetheric_settings_shell_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_settings_shell_css(DARK_PALETTE)
+        assert "QWidget#AethericSettingsShell" in css
+
+    def test_contains_glass_bg(self):
+        css = aetheric_settings_shell_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_BG in css
+
+    def test_contains_12px_radius(self):
+        css = aetheric_settings_shell_css(DARK_PALETTE)
+        assert "border-radius: 12px" in css
+
+    def test_directional_borders(self):
+        """Light on top-left, dark on bottom-right."""
+        css = aetheric_settings_shell_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_LIGHT in css
+        assert AETHERIC_BORDER_DARK in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_sidebar_css
+# ---------------------------------------------------------------------------
+
+class TestAethericSidebarCss:
+    """Sidebar QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash(self, palette):
+        css = aetheric_sidebar_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_sidebar_css(DARK_PALETTE)
+        assert "QWidget#AethericSidebar" in css
+
+    def test_contains_glass_bg(self):
+        css = aetheric_sidebar_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_BG in css
+
+    def test_contains_sidebar_width(self):
+        css = aetheric_sidebar_css(DARK_PALETTE)
+        assert AETHERIC_SIDEBAR_WIDTH in css
+
+    def test_has_12px_corner_radius(self):
+        css = aetheric_sidebar_css(DARK_PALETTE)
+        assert "border-top-left-radius: 12px" in css
+        assert "border-bottom-left-radius: 12px" in css
+
+    def test_dark_right_border(self):
+        css = aetheric_sidebar_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_DARK in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_nav_button_css
+# ---------------------------------------------------------------------------
+
+class TestAethericNavButtonCss:
+    """Navigation pill button QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash(self, palette):
+        css = aetheric_nav_button_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_nav_button_css(DARK_PALETTE)
+        assert "QPushButton#AethericNavButton" in css
+
+    def test_inactive_text_token(self):
+        css = aetheric_nav_button_css(DARK_PALETTE)
+        assert AETHERIC_NAV_INACTIVE_TEXT in css
+
+    def test_hover_state_with_hover_bg(self):
+        css = aetheric_nav_button_css(DARK_PALETTE)
+        assert ":hover" in css
+        assert AETHERIC_NAV_HOVER_BG in css
+
+    def test_checked_state_with_red_active(self):
+        """Active (checked) pill uses red background and red glow border."""
+        css = aetheric_nav_button_css(DARK_PALETTE)
+        assert ":checked" in css
+        assert AETHERIC_NAV_ACTIVE_BG in css
+        assert AETHERIC_NAV_ACTIVE_GLOW in css
+        assert AETHERIC_RED in css
+
+    def test_pill_border_radius(self):
+        css = aetheric_nav_button_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_dock_bay_css
+# ---------------------------------------------------------------------------
+
+class TestAethericDockBayCss:
+    """Dock bay container QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash(self, palette):
+        css = aetheric_dock_bay_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_dock_bay_css(DARK_PALETTE)
+        assert "QWidget#AethericDockBay" in css
+
+    def test_transparent_background(self):
+        css = aetheric_dock_bay_css(DARK_PALETTE)
+        assert "background-color: transparent" in css
+
+    def test_light_border(self):
+        css = aetheric_dock_bay_css(DARK_PALETTE)
+        assert AETHERIC_BORDER_LIGHT in css
+
+    def test_8px_radius(self):
+        css = aetheric_dock_bay_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_placeholder_css
+# ---------------------------------------------------------------------------
+
+class TestAethericPlaceholderCss:
+    """Placeholder row QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash(self, palette):
+        css = aetheric_placeholder_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_placeholder_css(DARK_PALETTE)
+        assert "QWidget#AethericPlaceholderRow" in css
+
+    def test_glass_row_bg(self):
+        css = aetheric_placeholder_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_ROW_BG in css
+
+    def test_hover_state_with_red_border(self):
+        css = aetheric_placeholder_css(DARK_PALETTE)
+        assert ":hover" in css
+        assert AETHERIC_RED in css
+
+    def test_8px_radius(self):
+        css = aetheric_placeholder_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+
+# ---------------------------------------------------------------------------
+# aetheric_combo_box_css
+# ---------------------------------------------------------------------------
+
+class TestAethericComboBoxCss:
+    """Combo box with chevron dropdown QSS contract."""
+
+    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
+    def test_does_not_crash(self, palette):
+        css = aetheric_combo_box_css(palette)
+        assert isinstance(css, str)
+        assert len(css) > 0
+
+    def test_uses_object_name_selector(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert "QComboBox#AethericComboBox" in css
+
+    def test_glass_row_bg(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert AETHERIC_GLASS_ROW_BG in css
+
+    def test_hover_uses_red_accent(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert ":hover" in css
+        assert AETHERIC_RED in css
+
+    def test_has_chevron_arrow(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert "::down-arrow" in css
+        assert "border-top: 6px solid" in css
+        assert AETHERIC_RED in css
+
+    def test_dropdown_panel(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert "::drop-down" in css
+
+    def test_item_view_selection(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert "QAbstractItemView" in css
+        assert "selection-background-color" in css
+
+    def test_8px_radius(self):
+        css = aetheric_combo_box_css(DARK_PALETTE)
+        assert "border-radius: 8px" in css
+
+
+# ---------------------------------------------------------------------------
+# Scoped selector audit — all helpers use #ObjectNames
+# ---------------------------------------------------------------------------
+
+class TestAethericScopedSelectors:
+    """Aetheric helpers use object-name selectors to avoid style leakage."""
+
+    def test_all_helpers_use_object_name_selectors(self):
+        """Each helper targets a specific #ObjectName to scope styles."""
+        helpers_and_selectors = [
+            (aetheric_settings_shell_css, "QWidget#AethericSettingsShell"),
+            (aetheric_sidebar_css, "QWidget#AethericSidebar"),
+            (aetheric_nav_button_css, "QPushButton#AethericNavButton"),
+            (aetheric_dock_bay_css, "QWidget#AethericDockBay"),
+            (aetheric_placeholder_css, "QWidget#AethericPlaceholderRow"),
+            (aetheric_combo_box_css, "QComboBox#AethericComboBox"),
+        ]
+        for helper, selector in helpers_and_selectors:
+            css = helper(DARK_PALETTE)
+            assert selector in css, (
+                f"{helper.__name__} missing scoped selector '{selector}'"
+            )
