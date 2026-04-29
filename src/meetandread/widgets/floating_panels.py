@@ -1995,6 +1995,9 @@ class CCOverlayPanel(QWidget):
     _FADE_STEP_MS = 10
     _FADE_STEPS = _FADE_DURATION_MS // _FADE_STEP_MS  # 15
 
+    # Delay before fade-out after recording stops (1.5 seconds)
+    CC_FADE_DELAY_MS = 1500
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
@@ -2009,6 +2012,13 @@ class CCOverlayPanel(QWidget):
 
         # --- Speaker display name mapping ---
         self._speaker_names: Dict[str, str] = {}
+
+        # --- Delayed fade-out timer ---
+        # After recording stops, the overlay stays visible for CC_FADE_DELAY_MS
+        # before starting the 150 ms fade-out.  show_panel() cancels both.
+        self._fade_delay_timer = QTimer(self)
+        self._fade_delay_timer.setSingleShot(True)
+        self._fade_delay_timer.timeout.connect(self._on_delay_elapsed)
 
         # --- Window flags: frameless, tool (no taskbar), always on top ---
         self.setWindowFlags(
@@ -2115,7 +2125,12 @@ class CCOverlayPanel(QWidget):
     # ------------------------------------------------------------------
 
     def show_panel(self) -> None:
-        """Show the panel with a fade-in animation."""
+        """Show the panel with a fade-in animation.
+
+        Cancels any pending delayed hide or in-progress fade-out so that
+        recording restarts are seamless.
+        """
+        self.cancel_delayed_hide()
         self._start_fade_in()
 
     def hide_panel(self, immediate: bool = False) -> None:
@@ -2136,6 +2151,46 @@ class CCOverlayPanel(QWidget):
             self.hide_panel()
         else:
             self.show_panel()
+
+    def start_delayed_hide(self) -> None:
+        """Schedule a delayed fade-out after CC_FADE_DELAY_MS.
+
+        The overlay stays visible with its final text during the delay
+        period, then fades out over 150 ms.  Calling this while a delay
+        or fade is already active restarts the delay cleanly.
+
+        Logs a concise lifecycle event without transcript bodies.
+        """
+        self.cancel_delayed_hide()
+        self._fade_delay_timer.start(self.CC_FADE_DELAY_MS)
+        logger.debug(
+            "CC overlay: delayed hide scheduled (%d ms), content=%s",
+            self.CC_FADE_DELAY_MS,
+            self._has_content,
+        )
+
+    def cancel_delayed_hide(self) -> None:
+        """Cancel any pending delayed hide and stop in-progress fade-out.
+
+        Safe to call when no timer is active — no-op in that case.
+        """
+        if self._fade_delay_timer.isActive():
+            self._fade_delay_timer.stop()
+            logger.debug("CC overlay: delayed hide cancelled")
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+            # Restore full opacity if we interrupted a fade-out mid-way
+            if self._fade_direction == -1:
+                self.setWindowOpacity(1.0)
+            logger.debug("CC overlay: in-progress fade cancelled, opacity restored")
+
+    def _on_delay_elapsed(self) -> None:
+        """Callback when the fade-delay timer fires — starts the fade-out."""
+        logger.debug(
+            "CC overlay: delay elapsed, starting fade-out, content=%s",
+            self._has_content,
+        )
+        self._start_fade_out()
 
     def dock_to_widget(self, widget: QWidget, position: str = "right") -> None:
         """Position panel next to a widget for first placement.
@@ -2397,6 +2452,10 @@ class CCOverlayPanel(QWidget):
             if self._fade_direction == -1:
                 self.hide()
                 self.setWindowOpacity(1.0)
+                logger.debug(
+                    "CC overlay: fade-out complete, hidden, content=%s",
+                    self._has_content,
+                )
 
 
 class FloatingSettingsPanel(QWidget):

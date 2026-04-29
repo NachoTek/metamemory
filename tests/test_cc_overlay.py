@@ -606,3 +606,217 @@ class TestSegmentReadySignal:
         qapp.processEvents()
         assert len(emitted) == 1
         assert emitted[0] == ("Hello", 90, 0, True, True)
+
+
+# ---------------------------------------------------------------------------
+# 14. Delayed fade-out — stop-delay semantics
+# ---------------------------------------------------------------------------
+
+class TestDelayedFadeOut:
+    """CC overlay schedules a 1500 ms delay before fading out after stop."""
+
+    def test_start_delayed_hide_schedules_timer(self, cc_panel, qapp):
+        """start_delayed_hide() activates the fade-delay timer."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+        assert cc_panel._fade_delay_timer.isActive(), "Fade-delay timer should be active"
+
+    def test_panel_still_visible_during_delay(self, cc_panel, qapp):
+        """Panel remains visible during the delay period."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+        qapp.processEvents()
+        assert cc_panel.isVisible(), "Panel must stay visible during delay"
+
+    def test_content_preserved_during_delay(self, cc_panel, qapp):
+        """Final transcript text is preserved through the delay period."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.update_segment("Final words", 95, 0, True, True)
+        cc_panel.start_delayed_hide()
+        qapp.processEvents()
+        text = cc_panel.text_edit.toPlainText()
+        assert "Final words" in text, "Final text must remain visible during delay"
+
+    def test_cancel_delayed_hide_stops_timer(self, cc_panel, qapp):
+        """cancel_delayed_hide() stops the fade-delay timer."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+        cc_panel.cancel_delayed_hide()
+        assert not cc_panel._fade_delay_timer.isActive(), "Timer should be stopped after cancel"
+
+    def test_cancel_with_no_active_timer_is_safe(self, cc_panel, qapp):
+        """cancel_delayed_hide() when no timer is active must not crash."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        # No timer started — should be a no-op
+        cc_panel.cancel_delayed_hide()
+        assert cc_panel.isVisible()
+
+    def test_fade_completes_after_delay(self, cc_panel, qapp):
+        """After the delay elapses, panel fades out and hides."""
+        import time
+        cc_panel.show_panel()
+        # Wait for fade-in to complete
+        time.sleep(0.25)
+        qapp.processEvents()
+
+        cc_panel.update_segment("Goodbye", 90, 0, True, True)
+        cc_panel.start_delayed_hide()
+
+        # Advance past the delay (1500ms) + fade (150ms) with margin
+        elapsed = 0
+        while elapsed < 3000:
+            qapp.processEvents()
+            time.sleep(0.05)
+            elapsed += 50
+            if not cc_panel.isVisible():
+                break
+
+        assert not cc_panel.isVisible(), "Panel should be hidden after delay + fade"
+
+    def test_opacity_resets_after_full_cycle(self, cc_panel, qapp):
+        """After delay → fade-out → hide, opacity should be 1.0 for next show."""
+        import time
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+
+        # Wait up to 3 seconds for the full delay+fade to complete
+        elapsed = 0
+        while elapsed < 3000:
+            qapp.processEvents()
+            time.sleep(0.05)
+            elapsed += 50
+            if not cc_panel.isVisible():
+                break
+
+        assert not cc_panel.isVisible()
+        assert cc_panel.windowOpacity() == 1.0, "Opacity should reset to 1.0 after fade-out"
+
+
+# ---------------------------------------------------------------------------
+# 15. Restart cancellation — show cancels pending/in-progress hide
+# ---------------------------------------------------------------------------
+
+class TestRestartCancellation:
+    """show_panel() must cancel any pending or in-progress hide sequence."""
+
+    def test_show_cancels_delayed_hide(self, cc_panel, qapp):
+        """show_panel() cancels a pending delayed hide."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+        assert cc_panel._fade_delay_timer.isActive()
+
+        cc_panel.show_panel()
+        qapp.processEvents()
+        assert not cc_panel._fade_delay_timer.isActive(), "Delay timer should be stopped by show"
+        assert cc_panel.isVisible(), "Panel should be visible"
+
+    def test_show_cancels_fade_out_in_progress(self, cc_panel, qapp):
+        """show_panel() cancels an in-progress fade-out."""
+        import time
+        cc_panel.show_panel()
+        qapp.processEvents()
+
+        # Start a fade-out (not delayed — immediate fade)
+        cc_panel._start_fade_out()
+        # Let one tick happen so the fade is in progress
+        time.sleep(0.02)
+        qapp.processEvents()
+
+        # Panel should still be visible mid-fade
+        assert cc_panel.isVisible() or cc_panel.windowOpacity() < 1.0
+
+        # Now show again — should cancel and restore
+        cc_panel.show_panel()
+        qapp.processEvents()
+        assert cc_panel.isVisible()
+
+    def test_content_preserved_through_restart(self, cc_panel, qapp):
+        """Text survives a stop-delay → show_panel() restart sequence."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.update_segment("Important text", 90, 0, True, True)
+        cc_panel.start_delayed_hide()
+        cc_panel.show_panel()
+        qapp.processEvents()
+        text = cc_panel.text_edit.toPlainText()
+        assert "Important text" in text, "Text must survive restart cancellation"
+
+    def test_rapid_start_stop_cycles(self, cc_panel, qapp):
+        """Rapid start/stop/restart sequences must be deterministic."""
+        import time
+        # Cycle 1
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+
+        # Cycle 2 — restart before delay finishes
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.update_segment("Cycle 2", 85, 0, True, True)
+        cc_panel.start_delayed_hide()
+
+        # Cycle 3 — restart again
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.update_segment("Cycle 3", 90, 0, True, True)
+        cc_panel.start_delayed_hide()
+
+        # Let the final delay elapse (up to 3 seconds)
+        elapsed = 0
+        while elapsed < 3000:
+            qapp.processEvents()
+            time.sleep(0.05)
+            elapsed += 50
+            if not cc_panel.isVisible():
+                break
+
+        assert not cc_panel.isVisible(), "Panel should hide after final delay"
+        text = cc_panel.text_edit.toPlainText()
+        assert "Cycle 2" in text
+        assert "Cycle 3" in text
+
+    def test_repeated_stop_calls_deterministic(self, cc_panel, qapp):
+        """Multiple start_delayed_hide() calls are idempotent."""
+        cc_panel.show_panel()
+        qapp.processEvents()
+        cc_panel.start_delayed_hide()
+        cc_panel.start_delayed_hide()
+        cc_panel.start_delayed_hide()
+        # Only one timer should be active (or timer restarted, not stacked)
+        assert cc_panel._fade_delay_timer.isActive()
+        qapp.processEvents()
+        assert cc_panel.isVisible(), "Panel should still be visible during delay"
+
+    def test_show_during_fade_out_restores_opacity(self, cc_panel, qapp):
+        """Calling show_panel() during active fade-out restores full visibility."""
+        import time
+        cc_panel.show_panel()
+        # Wait for initial fade-in to complete
+        for _ in range(30):
+            qapp.processEvents()
+            time.sleep(0.01)
+
+        # Start a direct fade-out (no delay)
+        cc_panel._start_fade_out()
+        # Let a few ticks of fade-out happen
+        for _ in range(5):
+            qapp.processEvents()
+            time.sleep(0.015)
+
+        # Show again — cancels fade-out and starts fade-in
+        cc_panel.show_panel()
+
+        # Wait for fade-in to complete (150ms + margin)
+        for _ in range(40):
+            qapp.processEvents()
+            time.sleep(0.01)
+
+        assert cc_panel.isVisible()
+        assert cc_panel.windowOpacity() == 1.0
