@@ -32,7 +32,7 @@ from meetandread.transcription.transcript_store import Word
 from meetandread.transcription.accumulating_processor import SegmentResult
 from meetandread.config import get_config, set_config, save_config, AppSettings
 from meetandread.hardware.recommender import ModelRecommender, get_model_info
-from meetandread.widgets.floating_panels import FloatingTranscriptPanel, FloatingSettingsPanel
+from meetandread.widgets.floating_panels import FloatingTranscriptPanel, FloatingSettingsPanel, CCOverlayPanel
 from meetandread.widgets.theme import context_menu_css, current_palette
 import time as _time
 
@@ -257,6 +257,7 @@ to avoid clipping issues and enable proper text rendering.
         # Floating panels (separate windows, not QGraphicsItems)
         self._floating_transcript_panel: Optional[FloatingTranscriptPanel] = None
         self._floating_settings_panel: Optional[FloatingSettingsPanel] = None
+        self._cc_overlay: Optional[CCOverlayPanel] = None
         
         # Create widget components
         self._create_components()
@@ -351,6 +352,13 @@ to avoid clipping issues and enable proper text rendering.
         self._floating_settings_panel.model_changed.connect(save_config)
 
         logging.debug("Created floating settings panel")
+
+        # CC overlay — compact caption panel for live transcript
+        self._cc_overlay = CCOverlayPanel()
+        self._cc_overlay.hide()
+        # Connect segment signal for thread-safe delivery from _on_phrase_result
+        self._cc_overlay.segment_ready.connect(self._on_cc_segment)
+        logging.debug("Created CC overlay panel")
     
     def _on_panel_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool):
         """Handle segment signal from panel (runs on main thread)."""
@@ -365,6 +373,26 @@ to avoid clipping issues and enable proper text rendering.
             )
         except Exception as e:
             logging.error("Panel update via signal failed: %s", e)
+
+    def _on_cc_segment(self, text: str, confidence: int, segment_index: int, is_final: bool, phrase_start: bool):
+        """Handle segment signal from CC overlay (runs on main thread).
+
+        Re-emits to the CC overlay's update_segment for live display.
+        The CC overlay is the primary live transcript surface during
+        recording; the legacy FloatingTranscriptPanel is retained for
+        tests until final cleanup.
+        """
+        try:
+            if self._cc_overlay:
+                self._cc_overlay.update_segment(
+                    text=text,
+                    confidence=confidence,
+                    segment_index=segment_index,
+                    is_final=is_final,
+                    phrase_start=phrase_start,
+                )
+        except Exception as e:
+            logging.error("CC overlay update failed: %s", e)
     
     def _layout_components(self):
         """Position all components."""
@@ -396,6 +424,9 @@ to avoid clipping issues and enable proper text rendering.
         For the settings panel, when docked it follows the widget using
         the stored dock offset from FloatingSettingsPanel, guarded by
         _syncing_docked_pair to prevent recursive move loops.
+
+        The CC overlay is NOT repositioned here — it is draggable and
+        only docked on first show via _has_been_docked guard.
         """
         if not self._floating_transcript_panel or not self._floating_settings_panel:
             return
@@ -892,7 +923,12 @@ to avoid clipping issues and enable proper text rendering.
         self._warning_indicator.hide()
     
     def _on_controller_state_change(self, state):
-        """Handle controller state changes."""
+        """Handle controller state changes.
+
+        Routes CC overlay lifecycle:
+        - RECORDING: clear, cancel any pending hide, show (first-docked)
+        - STOPPING/IDLE/ERROR: start delayed hide (keeps final words)
+        """
         if state == ControllerState.RECORDING:
             self.is_recording = True
             self.is_processing = False
@@ -904,7 +940,16 @@ to avoid clipping issues and enable proper text rendering.
             self.system_lobe.set_locked(True)
             logging.debug("Lobes locked (RECORDING)")
             
-            # Show floating transcript panel when recording starts
+            # Show CC overlay for live transcript
+            if self._cc_overlay:
+                logging.debug("Showing CC overlay for recording")
+                self._cc_overlay.clear()
+                # Only dock to widget on first show; preserve user position after that
+                if not self._cc_overlay._has_been_docked:
+                    self._cc_overlay.dock_to_widget(self, self._get_panel_position())
+                self._cc_overlay.show_panel()
+            
+            # Show floating transcript panel when recording starts (legacy)
             if self._floating_transcript_panel:
                 logging.debug("Showing floating transcript panel")
                 self._floating_transcript_panel.clear()
@@ -927,6 +972,10 @@ to avoid clipping issues and enable proper text rendering.
             self._visual_state.transition_to(WidgetVisualState.PROCESSING)
             self.record_button.set_recording_state(False)
             self.record_button.set_processing_state(True)
+            # CC overlay: start delayed fade-out (keeps final words visible)
+            if self._cc_overlay:
+                self._cc_overlay.start_delayed_hide()
+                logging.debug("CC overlay: delayed hide scheduled (STOPPING)")
             
         elif state == ControllerState.IDLE:
             self.is_recording = False
@@ -938,6 +987,10 @@ to avoid clipping issues and enable proper text rendering.
             self.mic_lobe.set_locked(False)
             self.system_lobe.set_locked(False)
             logging.debug("Lobes unlocked (IDLE)")
+            # CC overlay: start delayed fade-out if still visible
+            if self._cc_overlay and self._cc_overlay.isVisible():
+                self._cc_overlay.start_delayed_hide()
+                logging.debug("CC overlay: delayed hide scheduled (IDLE)")
             
         elif state == ControllerState.ERROR:
             self.is_recording = False
@@ -949,6 +1002,10 @@ to avoid clipping issues and enable proper text rendering.
             self.mic_lobe.set_locked(False)
             self.system_lobe.set_locked(False)
             logging.debug("Lobes unlocked (ERROR)")
+            # CC overlay: start delayed fade-out on error
+            if self._cc_overlay and self._cc_overlay.isVisible():
+                self._cc_overlay.start_delayed_hide()
+                logging.debug("CC overlay: delayed hide scheduled (ERROR)")
         
         # Forward state to tray icon manager
         if self._tray_manager is not None:
@@ -971,7 +1028,7 @@ to avoid clipping issues and enable proper text rendering.
     def _on_phrase_result(self, result: SegmentResult):
         """Handle segment result from accumulating transcription processor.
 
-        Thread-safe: emits signal which automatically queues to main thread.
+        Thread-safe: emits signals which automatically queue to main thread.
 
         Args:
             result: SegmentResult with text, confidence, and completion status
@@ -990,6 +1047,16 @@ to avoid clipping issues and enable proper text rendering.
                 result.is_final,
                 phrase_start
             )
+
+        if self._cc_overlay:
+            # Emit signal (thread-safe, automatically queues to main thread)
+            self._cc_overlay.segment_ready.emit(
+                result.text,
+                result.confidence,
+                result.segment_index,
+                result.is_final,
+                phrase_start
+            )
     
     def _on_recording_complete(self, wav_path, transcript_path):
         """Handle recording completion."""
@@ -999,29 +1066,35 @@ to avoid clipping issues and enable proper text rendering.
         if transcript_path:
             logging.info("Transcript saved to: %s", transcript_path)
         
-        # Update panel status
-        if self._floating_transcript_panel:
-            self._floating_transcript_panel.status_label.setText("Recording complete - Post-processing...")
+        # Update panel status (legacy FloatingTranscriptPanel only)
+        if self._floating_transcript_panel and hasattr(self._floating_transcript_panel, 'status_label'):
+            try:
+                self._floating_transcript_panel.status_label.setText("Recording complete - Post-processing...")
+            except Exception:
+                pass
     
     def _on_post_process_complete(self, job_id, transcript_path):
         """Handle post-processing completion.
 
-        Args:
-            job_id: The post-processing job ID
-            transcript_path: Path to the post-processed transcript file
+        Updates WER display in settings panel.  CC overlay lifecycle
+        is handled by STOPPING/IDLE delayed hide — no tab switching here.
+        Legacy FloatingTranscriptPanel tab/status updates are guarded.
         """
         logging.info("Post-processing complete! Job: %s, transcript: %s", job_id, transcript_path)
 
-        # Update panel status and switch to History tab
-        if self._floating_transcript_panel:
-            self._floating_transcript_panel.status_label.setText(f"Post-processed transcript saved!")
-            # Switch to History tab to show the completed recording
-            self._floating_transcript_panel._tab_widget.setCurrentIndex(1)
-            # Refresh the history list to pick up the new transcript
-            self._floating_transcript_panel._refresh_history()
-            QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
+        # Update legacy panel status and switch to History tab
+        if self._floating_transcript_panel and hasattr(self._floating_transcript_panel, '_tab_widget'):
+            try:
+                self._floating_transcript_panel.status_label.setText("Post-processed transcript saved!")
+                # Switch to History tab to show the completed recording
+                self._floating_transcript_panel._tab_widget.setCurrentIndex(1)
+                # Refresh the history list to pick up the new transcript
+                self._floating_transcript_panel._refresh_history()
+                QTimer.singleShot(3000, lambda: self._floating_transcript_panel.status_label.setText("Ready"))
+            except Exception:
+                pass
 
-        # Update Performance tab WER display
+        # Update Performance tab WER display (Settings panel)
         if self._floating_settings_panel:
             wer = self._controller.get_last_wer()
             self._floating_settings_panel.update_wer_display(wer)
@@ -1051,14 +1124,26 @@ to avoid clipping issues and enable proper text rendering.
             if speaker_names:
                 self._floating_transcript_panel.set_speaker_names(speaker_names)
 
+        # Also update CC overlay speaker names
+        if self._cc_overlay:
+            speaker_names = self._controller.get_speaker_names()
+            if speaker_names:
+                self._cc_overlay.set_speaker_names(speaker_names)
+
     def toggle_transcript_panel(self):
-        """Toggle floating transcript panel visibility."""
-        if self._floating_transcript_panel:
-            if self._floating_transcript_panel.isVisible():
-                self._floating_transcript_panel.hide_panel()
+        """Toggle CC overlay visibility via the transcript lobe.
+
+        The transcript lobe controls the compact CC overlay (live captions).
+        The legacy FloatingTranscriptPanel remains available but the primary
+        user-facing toggle operates on the CC overlay.
+        """
+        if self._cc_overlay:
+            if self._cc_overlay.isVisible():
+                self._cc_overlay.hide_panel()
             else:
-                self._floating_transcript_panel.dock_to_widget(self, self._get_panel_position())
-                self._floating_transcript_panel.show_panel()
+                if not self._cc_overlay._has_been_docked:
+                    self._cc_overlay.dock_to_widget(self, self._get_panel_position())
+                self._cc_overlay.show_panel()
     
     def _toggle_settings_panel(self):
         """Toggle floating settings panel visibility.
@@ -1148,6 +1233,8 @@ to avoid clipping issues and enable proper text rendering.
             self._floating_transcript_panel.hide()
         if self._floating_settings_panel:
             self._floating_settings_panel.hide()
+        if self._cc_overlay:
+            self._cc_overlay.hide()
         if self._tray_manager is not None:
             self._tray_manager.hide()
         QApplication.quit()

@@ -2250,9 +2250,6 @@ class CCOverlayPanel(QWidget):
         if text.strip() == "[BLANK_AUDIO]":
             return
 
-        # Emit signal before display work
-        self.segment_ready.emit(text, confidence, segment_index, is_final, phrase_start)
-
         # Clear placeholder on first real content
         if not self._has_content:
             self._has_content = True

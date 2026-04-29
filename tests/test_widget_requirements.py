@@ -59,6 +59,8 @@ def widget(qapp):
     w._floating_transcript_panel.isVisible.return_value = False
     w._floating_settings_panel = MagicMock()
     w._floating_settings_panel.isVisible.return_value = False
+    w._cc_overlay = MagicMock()
+    w._cc_overlay.isVisible.return_value = False
     yield w
     w.close()
 
@@ -221,16 +223,16 @@ class TestWIDGET17:
                     f"Lobe positions overlap: {list(positions.keys())[i]} == {list(positions.keys())[j]}"
 
     def test_transcript_lobe_toggles_panel_hide(self, widget):
-        """Clicking transcript lobe hides panel when visible."""
-        widget._floating_transcript_panel.isVisible.return_value = True
+        """Clicking transcript lobe hides CC overlay when visible."""
+        widget._cc_overlay.isVisible.return_value = True
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.hide_panel.assert_called_once()
+        widget._cc_overlay.hide_panel.assert_called_once()
 
     def test_transcript_lobe_toggles_panel_show(self, widget):
-        """Clicking transcript lobe shows panel when hidden."""
-        widget._floating_transcript_panel.isVisible.return_value = False
+        """Clicking transcript lobe shows CC overlay when hidden."""
+        widget._cc_overlay.isVisible.return_value = False
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.show_panel.assert_called_once()
+        widget._cc_overlay.show_panel.assert_called_once()
 
 
 class TestWIDGET19:
@@ -241,14 +243,14 @@ class TestWIDGET19:
 
 class TestWIDGET20:
     def test_hides_when_visible(self, widget):
-        widget._floating_transcript_panel.isVisible.return_value = True
+        widget._cc_overlay.isVisible.return_value = True
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.hide_panel.assert_called_once()
+        widget._cc_overlay.hide_panel.assert_called_once()
 
     def test_shows_when_hidden(self, widget):
-        widget._floating_transcript_panel.isVisible.return_value = False
+        widget._cc_overlay.isVisible.return_value = False
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.show_panel.assert_called_once()
+        widget._cc_overlay.show_panel.assert_called_once()
 
 
 class TestWIDGET21:

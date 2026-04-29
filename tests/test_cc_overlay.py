@@ -596,16 +596,21 @@ class TestSegmentReadySignal:
         """Panel has segment_ready signal."""
         assert hasattr(cc_panel, 'segment_ready')
 
-    def test_signal_emitted(self, cc_panel, qapp):
-        """update_segment emits segment_ready."""
-        emitted = []
+    def test_signal_used_for_thread_delivery(self, cc_panel, qapp):
+        """segment_ready signal can be emitted externally for thread-safe delivery.
+
+        The signal is used by MeetAndReadWidget to queue segment updates
+        from a background thread to the main thread. update_segment() does
+        not re-emit to avoid recursion.
+        """
+        received = []
         cc_panel.segment_ready.connect(
-            lambda t, c, si, f, ps: emitted.append((t, c, si, f, ps))
+            lambda t, c, si, f, ps: received.append((t, c, si, f, ps))
         )
-        cc_panel.update_segment("Hello", 90, 0, True, True)
+        # Simulate external emission (as _on_phrase_result does)
+        cc_panel.segment_ready.emit("Test", 80, 0, True, True)
         qapp.processEvents()
-        assert len(emitted) == 1
-        assert emitted[0] == ("Hello", 90, 0, True, True)
+        assert len(received) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -820,3 +825,243 @@ class TestRestartCancellation:
 
         assert cc_panel.isVisible()
         assert cc_panel.windowOpacity() == 1.0
+
+
+# ===========================================================================
+# Widget lifecycle wiring tests (T05)
+# ===========================================================================
+
+class TestCCOverlayWidgetLifecycle:
+    """Verify MeetAndReadWidget routes CC overlay lifecycle correctly.
+
+    These tests use the widget's real _cc_overlay (CCOverlayPanel, not mock)
+    and mock the legacy FloatingTranscriptPanel to isolate CC behavior.
+    """
+
+    @pytest.fixture
+    def widget_with_cc(self, qapp):
+        """Create a MeetAndReadWidget with real CC overlay, mocked legacy panels."""
+        from unittest.mock import MagicMock, patch
+        from meetandread.widgets.main_widget import MeetAndReadWidget
+
+        fake_screen = MagicMock()
+        fake_screen.geometry.return_value = _FakeScreenGeometry()
+        fake_screen.availableGeometry.return_value = _FakeScreenGeometry()
+
+        with patch.object(QApplication, "primaryScreen", return_value=fake_screen), \
+             patch.object(QApplication, "screens", return_value=[fake_screen]), \
+             patch("meetandread.widgets.main_widget.get_config", return_value=None), \
+             patch("meetandread.widgets.main_widget.save_config"):
+            w = MeetAndReadWidget()
+
+        # Mock legacy panel but keep real CC overlay
+        w._floating_transcript_panel = MagicMock()
+        w._floating_transcript_panel.isVisible.return_value = False
+        w._floating_settings_panel = MagicMock()
+        w._floating_settings_panel.isVisible.return_value = False
+
+        yield w
+        # Cleanup
+        if w._cc_overlay:
+            w._cc_overlay.cancel_delayed_hide()
+            w._cc_overlay.hide()
+        w.close()
+
+    def test_cc_overlay_created(self, widget_with_cc):
+        """Widget creates a CCOverlayPanel instance."""
+        assert widget_with_cc._cc_overlay is not None
+        assert isinstance(widget_with_cc._cc_overlay, CCOverlayPanel)
+
+    def test_recording_shows_cc_overlay(self, widget_with_cc, qapp):
+        """RECORDING state clears and shows CC overlay."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        w._on_controller_state_change(ControllerState.RECORDING)
+
+        # Process events so fade-in starts
+        for _ in range(20):
+            qapp.processEvents()
+
+        assert w._cc_overlay.isVisible()
+        assert w._cc_overlay._has_content is False
+
+    def test_recording_clears_cc_overlay_before_show(self, widget_with_cc, qapp):
+        """RECORDING state clears previous content before showing."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        # Put some content in the overlay
+        w._cc_overlay.update_segment("old text", 90, 0, phrase_start=True)
+        assert w._cc_overlay._has_content is True
+
+        # Start recording — should clear
+        w._on_controller_state_change(ControllerState.RECORDING)
+        assert w._cc_overlay._has_content is False
+
+    def test_stopping_starts_delayed_hide(self, widget_with_cc, qapp):
+        """STOPPING state starts delayed hide on CC overlay."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        # Show overlay first via RECORDING
+        w._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(20):
+            qapp.processEvents()
+        assert w._cc_overlay.isVisible()
+
+        # STOPPING should schedule delayed hide
+        w._on_controller_state_change(ControllerState.STOPPING)
+        assert w._cc_overlay._fade_delay_timer.isActive()
+
+    def test_idle_starts_delayed_hide_when_visible(self, widget_with_cc, qapp):
+        """IDLE state starts delayed hide if CC overlay is still visible."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        w._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(20):
+            qapp.processEvents()
+
+        # Go directly to IDLE (not through STOPPING)
+        w._on_controller_state_change(ControllerState.IDLE)
+        assert w._cc_overlay._fade_delay_timer.isActive()
+
+    def test_error_starts_delayed_hide_when_visible(self, widget_with_cc, qapp):
+        """ERROR state starts delayed hide if CC overlay is still visible."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        w._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(20):
+            qapp.processEvents()
+
+        w._on_controller_state_change(ControllerState.ERROR)
+        assert w._cc_overlay._fade_delay_timer.isActive()
+
+    def test_restart_cancels_delayed_hide(self, widget_with_cc, qapp):
+        """Recording restart cancels pending delayed hide."""
+        from meetandread.recording import ControllerState
+        w = widget_with_cc
+
+        # Record → Stop → Record again
+        w._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(20):
+            qapp.processEvents()
+
+        w._on_controller_state_change(ControllerState.STOPPING)
+        assert w._cc_overlay._fade_delay_timer.isActive()
+
+        # Restart recording — should cancel delayed hide and show fresh
+        w._on_controller_state_change(ControllerState.RECORDING)
+        for _ in range(20):
+            qapp.processEvents()
+
+        assert not w._cc_overlay._fade_delay_timer.isActive()
+        assert w._cc_overlay.isVisible()
+        assert w._cc_overlay._has_content is False
+
+    def test_toggle_transcript_panel_toggles_cc_overlay(self, widget_with_cc, qapp):
+        """toggle_transcript_panel() controls CC overlay visibility."""
+        w = widget_with_cc
+
+        # Initially hidden
+        assert not w._cc_overlay.isVisible()
+
+        # Toggle on
+        w.toggle_transcript_panel()
+        for _ in range(20):
+            qapp.processEvents()
+        assert w._cc_overlay.isVisible()
+
+        # Toggle off — hide_panel starts fade-out
+        w.toggle_transcript_panel()
+        # Process enough events for the 150ms fade-out to complete
+        for _ in range(50):
+            qapp.processEvents()
+            import time
+            time.sleep(0.005)
+        assert not w._cc_overlay.isVisible()
+
+    def test_widget_move_does_not_redock_cc_overlay(self, widget_with_cc, qapp):
+        """Moving the widget does not reposition an already-docked CC overlay."""
+        from unittest.mock import MagicMock
+        w = widget_with_cc
+
+        # Show CC overlay and mark as docked
+        w._cc_overlay.show_panel()
+        for _ in range(20):
+            qapp.processEvents()
+        w._cc_overlay._has_been_docked = True
+
+        # Record overlay position
+        original_pos = w._cc_overlay.pos()
+
+        # Move widget
+        w.move(500, 500)
+        for _ in range(5):
+            qapp.processEvents()
+
+        # CC overlay should NOT have moved
+        assert w._cc_overlay.pos() == original_pos
+
+    def test_segment_forwarded_to_cc_overlay(self, widget_with_cc, qapp):
+        """_on_phrase_result forwards segments to CC overlay via signal."""
+        from meetandread.transcription.accumulating_processor import SegmentResult
+        w = widget_with_cc
+
+        # Show overlay
+        w._cc_overlay.show_panel()
+        for _ in range(20):
+            qapp.processEvents()
+
+        # Create a segment result
+        result = SegmentResult(
+            text="Hello world",
+            confidence=90,
+            start_time=0.0,
+            end_time=1.0,
+            segment_index=0,
+            is_final=True,
+            phrase_start=True,
+        )
+
+        w._on_phrase_result(result)
+
+        # Process signal delivery
+        for _ in range(20):
+            qapp.processEvents()
+
+        assert w._cc_overlay._has_content is True
+        assert "Hello" in w._cc_overlay.text_edit.toPlainText()
+
+    def test_post_process_does_not_switch_cc_tabs(self, widget_with_cc):
+        """CC overlay has no tab widget — _on_post_process_complete is safe."""
+        w = widget_with_cc
+        # CC overlay has no _tab_widget attribute
+        assert not hasattr(w._cc_overlay, '_tab_widget')
+        # Should not crash
+        w._on_post_process_complete("job-1", "/tmp/transcript.json")
+
+    def test_speaker_names_forwarded_to_cc_overlay(self, widget_with_cc):
+        """Speaker name pinning forwards names to CC overlay."""
+        from unittest.mock import MagicMock
+        w = widget_with_cc
+
+        # Mock controller methods
+        w._controller.pin_speaker_name = MagicMock()
+        w._controller.get_speaker_names = MagicMock(return_value={"SPK_0": "Alice"})
+
+        w._on_speaker_name_pinned("SPK_0", "Alice")
+
+        names = w._cc_overlay.get_speaker_names()
+        assert names.get("SPK_0") == "Alice"
+
+
+class _FakeScreenGeometry:
+    def __init__(self, width=1920, height=1080):
+        self._w = width
+        self._h = height
+    def width(self): return self._w
+    def height(self): return self._h
+    def contains(self, point): return 0 <= point.x() < self._w and 0 <= point.y() < self._h
