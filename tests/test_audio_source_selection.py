@@ -272,6 +272,7 @@ class TestRecordingLockWiring:
         widget.system_lobe = _make_lobe()
         widget.record_button = MagicMock()
         widget._floating_transcript_panel = None
+        widget._cc_overlay = None
         widget._hide_error = MagicMock()
         widget._tray_manager = None
         widget.is_processing = False
@@ -299,6 +300,7 @@ class TestRecordingLockWiring:
         widget.mic_lobe = _make_lobe()
         widget.system_lobe = _make_lobe()
         widget.record_button = MagicMock()
+        widget._cc_overlay = None
         widget._tray_manager = None
         widget.is_recording = True
         widget.is_processing = False
@@ -314,6 +316,7 @@ class TestRecordingLockWiring:
         widget.mic_lobe = _make_lobe()
         widget.system_lobe = _make_lobe()
         widget.record_button = MagicMock()
+        widget._cc_overlay = None
         widget._tray_manager = None
         widget.is_recording = True
         widget.is_processing = False
