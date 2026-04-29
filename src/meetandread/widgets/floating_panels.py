@@ -9,10 +9,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QFrame, QHBoxLayout, QPushButton,
     QInputDialog, QApplication, QTabWidget, QListWidget, QListWidgetItem,
     QSplitter, QTextBrowser, QProgressBar, QComboBox, QMenu, QMessageBox,
-    QDialog, QDialogButtonBox, QSizePolicy, QSizeGrip,
+    QDialog, QDialogButtonBox, QSizePolicy, QSizeGrip, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QUrl
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QPainter, QPen
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QUrl, QPoint
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QPainter, QPen, QMouseEvent
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,11 +28,18 @@ from meetandread.performance.benchmark import BenchmarkRunner, BenchmarkResult
 from meetandread.performance.wer import calculate_wer
 from meetandread.widgets.theme import (
     current_palette, DARK_PALETTE,
-    panel_base_css, title_css, header_button_css, tab_widget_css,
+    panel_base_css, glass_panel_css, title_css, header_button_css, tab_widget_css,
     text_area_css, status_label_css, splitter_css, list_widget_css,
     detail_header_css, action_button_css, context_menu_css, dialog_css,
     badge_css, resize_grip_css, legend_overlay_css, info_label_css,
     progress_bar_css, separator_css, combo_box_css,
+    aetheric_settings_shell_css, aetheric_sidebar_css, aetheric_nav_button_css,
+    aetheric_dock_bay_css, aetheric_placeholder_css, aetheric_combo_box_css,
+    aetheric_history_list_css, aetheric_history_viewer_css,
+    aetheric_history_splitter_css, aetheric_history_header_css,
+    aetheric_history_action_button_css,
+    aetheric_cc_overlay_css,
+    AETHERIC_RED, AETHERIC_NAV_INACTIVE_TEXT,
 )
 
 import logging
@@ -115,6 +122,10 @@ class FloatingTranscriptPanel(QWidget):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool  # Don't show in taskbar
         )
+        
+        # Glass pair: translucent background matching the widget's glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         
         # Size — resizable with min/max bounds
         self.setMinimumSize(350, 300)
@@ -306,6 +317,13 @@ class FloatingTranscriptPanel(QWidget):
         
         # Empty state tracking
         self._has_content: bool = False
+        
+        # Glass pair opacity — matches the widget's glass aesthetic
+        # 0.87 = translucent idle (desktop visible behind), 1.0 = active/recording
+        self._glass_idle_opacity = 0.87
+        self._glass_active_opacity = 1.0
+        self._is_glass_active = False
+        self.setWindowOpacity(self._glass_idle_opacity)
 
         # Apply initial theme to all widgets
         self._apply_theme()
@@ -475,6 +493,7 @@ class FloatingTranscriptPanel(QWidget):
     
     def show_panel(self) -> None:
         """Show the panel with a 150ms fade-in and start auto-scroll."""
+        self._set_glass_active(True)
         self._start_fade_in()
         self.scroll_timer.start(100)  # Scroll check every 100ms
         self._recording_start_time = time.time()
@@ -487,10 +506,21 @@ class FloatingTranscriptPanel(QWidget):
     
     def hide_panel(self) -> None:
         """Hide the panel with a 150ms fade-out."""
+        self._set_glass_active(False)
         self.scroll_timer.stop()
         self._duration_timer.stop()
         self._recording_start_time = None
         self._start_fade_out()
+
+    def _set_glass_active(self, active: bool) -> None:
+        """Transition glass opacity between idle (0.87) and active (1.0).
+
+        Args:
+            active: True for recording/active state, False for idle.
+        """
+        self._is_glass_active = active
+        target = self._glass_active_opacity if active else self._glass_idle_opacity
+        self.setWindowOpacity(target)
 
     def _update_duration(self) -> None:
         """Update the status label with elapsed recording duration (mm:ss)."""
@@ -524,7 +554,7 @@ class FloatingTranscriptPanel(QWidget):
         self._current_palette = p
 
         # Panel base
-        self.setStyleSheet(panel_base_css(p, "FloatingTranscriptPanel"))
+        self.setStyleSheet(glass_panel_css(p, "FloatingTranscriptPanel"))
 
         # Header widgets
         self._title_label.setStyleSheet(title_css(p))
@@ -1930,21 +1960,532 @@ class BudgetProgressBar(QProgressBar):
         painter.end()
 
 
+# ---------------------------------------------------------------------------
+# CCOverlayPanel — compact closed-caption overlay for live transcript
+# ---------------------------------------------------------------------------
+
+class CCOverlayPanel(QWidget):
+    """Compact draggable/resizable CC-style overlay for live transcript text.
+
+    Frameless, translucent, always-on-top window that displays real-time
+    transcription text during recording.  Designed to be a lightweight
+    surface with no history, tabs, or status chrome.
+
+    Shell methods:
+        show_panel()         — show with fade-in
+        hide_panel(immediate) — hide, optionally deferred via fade
+        toggle_panel()       — toggle visibility
+        dock_to_widget(w)    — first placement next to a widget
+        clear()              — reset text and content state
+
+    Observability:
+        objectName()       → "AethericCCOverlay"
+        text_edit.objectName() → "AethericCCText"
+        isVisible()        → panel visibility state
+        _has_content       → whether any transcript text has been received
+        phrases            → list of Phrase objects
+        current_phrase_idx → index of the active phrase being built
+    """
+
+    # Signals
+    segment_ready = pyqtSignal(str, int, int, bool, bool)  # text, confidence, segment_index, is_final, phrase_start
+
+    # Fade constants (matching FloatingTranscriptPanel)
+    _FADE_DURATION_MS = 150
+    _FADE_STEP_MS = 10
+    _FADE_STEPS = _FADE_DURATION_MS // _FADE_STEP_MS  # 15
+
+    # Delay before fade-out after recording stops (1.5 seconds)
+    CC_FADE_DELAY_MS = 1500
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        self.setObjectName("AethericCCOverlay")
+
+        # Track content state
+        self._has_content: bool = False
+
+        # --- Phrase tracking for live transcript ---
+        self.phrases: List[Phrase] = []
+        self.current_phrase_idx: int = -1
+
+        # --- Speaker display name mapping ---
+        self._speaker_names: Dict[str, str] = {}
+
+        # --- Delayed fade-out timer ---
+        # After recording stops, the overlay stays visible for CC_FADE_DELAY_MS
+        # before starting the 150 ms fade-out.  show_panel() cancels both.
+        self._fade_delay_timer = QTimer(self)
+        self._fade_delay_timer.setSingleShot(True)
+        self._fade_delay_timer.timeout.connect(self._on_delay_elapsed)
+
+        # --- Window flags: frameless, tool (no taskbar), always on top ---
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+
+        # Translucent background for glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+
+        # --- Compact size constraints ---
+        self.setMinimumSize(300, 120)
+        self.setMaximumSize(900, 400)
+        self.resize(480, 200)
+
+        # --- Layout: single text edit fills the panel ---
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setObjectName("AethericCCText")
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
+        self.text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self.text_edit)
+
+        # --- Resize grip: direct child of panel (MEM083 pattern) ---
+        self._resize_grip = QSizeGrip(self)
+        self._resize_grip.setFixedSize(16, 16)
+        self._resize_grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self._resize_grip.show()
+
+        # --- Drag state ---
+        self._dragging: bool = False
+        self._drag_pos: Optional[QPoint] = None
+
+        # Track whether panel has been positioned at least once
+        self._has_been_docked: bool = False
+
+        # Apply initial theme
+        self._apply_theme()
+
+        logger.debug("CCOverlayPanel created (parent=%s)", type(parent).__name__ if parent else "None")
+
+    # ------------------------------------------------------------------
+    # Theme
+    # ------------------------------------------------------------------
+
+    def _apply_theme(self) -> None:
+        """Apply Aetheric CC overlay styling."""
+        p = current_palette()
+        self.setStyleSheet(aetheric_cc_overlay_css(p))
+        self._resize_grip.setStyleSheet(resize_grip_css(p))
+
+    # ------------------------------------------------------------------
+    # Resize — reposition grip (MEM083 pattern)
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event) -> None:
+        """Reposition resize grip to bottom-right corner."""
+        if hasattr(self, "_resize_grip"):
+            self._resize_grip.move(
+                self.width() - self._resize_grip.width(),
+                self.height() - self._resize_grip.height(),
+            )
+        super().resizeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Drag handlers
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Start drag on left-button press."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Move panel with mouse during drag."""
+        if self._dragging and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """End drag on left-button release."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._drag_pos = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    # ------------------------------------------------------------------
+    # Shell methods
+    # ------------------------------------------------------------------
+
+    def show_panel(self) -> None:
+        """Show the panel with a fade-in animation.
+
+        Cancels any pending delayed hide or in-progress fade-out so that
+        recording restarts are seamless.
+        """
+        self.cancel_delayed_hide()
+        self._start_fade_in()
+
+    def hide_panel(self, immediate: bool = False) -> None:
+        """Hide the panel, optionally immediately without fade.
+
+        Args:
+            immediate: If True, hide instantly. If False, fade out.
+        """
+        if immediate:
+            self.hide()
+            self.setWindowOpacity(1.0)
+        else:
+            self._start_fade_out()
+
+    def toggle_panel(self) -> None:
+        """Toggle panel visibility."""
+        if self.isVisible():
+            self.hide_panel()
+        else:
+            self.show_panel()
+
+    def start_delayed_hide(self) -> None:
+        """Schedule a delayed fade-out after CC_FADE_DELAY_MS.
+
+        The overlay stays visible with its final text during the delay
+        period, then fades out over 150 ms.  Calling this while a delay
+        or fade is already active restarts the delay cleanly.
+
+        Logs a concise lifecycle event without transcript bodies.
+        """
+        self.cancel_delayed_hide()
+        self._fade_delay_timer.start(self.CC_FADE_DELAY_MS)
+        logger.debug(
+            "CC overlay: delayed hide scheduled (%d ms), content=%s",
+            self.CC_FADE_DELAY_MS,
+            self._has_content,
+        )
+
+    def cancel_delayed_hide(self) -> None:
+        """Cancel any pending delayed hide and stop in-progress fade-out.
+
+        Safe to call when no timer is active — no-op in that case.
+        """
+        if self._fade_delay_timer.isActive():
+            self._fade_delay_timer.stop()
+            logger.debug("CC overlay: delayed hide cancelled")
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+            # Restore full opacity if we interrupted a fade-out mid-way
+            if self._fade_direction == -1:
+                self.setWindowOpacity(1.0)
+            logger.debug("CC overlay: in-progress fade cancelled, opacity restored")
+
+    def _on_delay_elapsed(self) -> None:
+        """Callback when the fade-delay timer fires — starts the fade-out."""
+        logger.debug(
+            "CC overlay: delay elapsed, starting fade-out, content=%s",
+            self._has_content,
+        )
+        self._start_fade_out()
+
+    def dock_to_widget(self, widget: QWidget, position: str = "right") -> None:
+        """Position panel next to a widget for first placement.
+
+        Args:
+            widget: The widget to dock alongside.
+            position: "left", "right", "top", or "bottom".
+        """
+        if widget is None:
+            return
+        widget_pos = widget.mapToGlobal(widget.rect().topLeft())
+        widget_rect = widget.geometry()
+
+        if position == "left":
+            x = widget_pos.x() - self.width() - 10
+            y = widget_pos.y()
+        elif position == "right":
+            x = widget_pos.x() + widget_rect.width() + 10
+            y = widget_pos.y()
+        elif position == "top":
+            x = widget_pos.x()
+            y = widget_pos.y() - self.height() - 10
+        else:  # bottom
+            x = widget_pos.x()
+            y = widget_pos.y() + widget_rect.height() + 10
+
+        self.move(x, y)
+        self._has_been_docked = True
+
+    def clear(self) -> None:
+        """Reset overlay text, phrases, and content state."""
+        self.text_edit.clear()
+        self.phrases.clear()
+        self.current_phrase_idx = -1
+        self._has_content = False
+
+    # ------------------------------------------------------------------
+    # Live transcript rendering
+    # ------------------------------------------------------------------
+
+    def update_segment(self, text: str, confidence: int, segment_index: int,
+                       is_final: bool = False, phrase_start: bool = False,
+                       speaker_id: Optional[str] = None) -> None:
+        """Update a single transcript segment in the CC overlay.
+
+        Each segment is part of a phrase (line).  Blank audio is silently
+        filtered.  HTML-unsafe text is escaped before display.
+
+        Args:
+            text: Transcribed text for this segment.
+            confidence: Confidence score (0–100).
+            segment_index: Position of this segment in the current phrase.
+            is_final: If True, this phrase is complete.
+            phrase_start: If True, start a new phrase (new line).
+            speaker_id: Optional speaker label for this phrase.
+        """
+        if text.strip() == "[BLANK_AUDIO]":
+            return
+
+        # Clear placeholder on first real content
+        if not self._has_content:
+            self._has_content = True
+            self.text_edit.clear()
+
+        # Start new phrase if needed
+        if phrase_start or self.current_phrase_idx < 0:
+            cursor = self.text_edit.textCursor()
+            if self.current_phrase_idx >= 0:
+                cursor.insertBlock()
+
+            self.phrases.append(
+                Phrase(segments=[], confidences=[], is_final=False, speaker_id=speaker_id)
+            )
+            self.current_phrase_idx = len(self.phrases) - 1
+
+            # Insert speaker label if provided
+            if speaker_id:
+                display_name = self._display_speaker_for(speaker_id)
+                self._insert_speaker_label(display_name)
+
+        # Get current phrase
+        phrase = self.phrases[self.current_phrase_idx]
+        phrase.is_final = is_final
+
+        # Update or add segment
+        if segment_index < len(phrase.segments):
+            phrase.segments[segment_index] = text
+            phrase.confidences[segment_index] = confidence
+            self._replace_segment_in_display(
+                self.current_phrase_idx, segment_index, text, confidence
+            )
+        else:
+            phrase.segments.append(text)
+            phrase.confidences.append(confidence)
+            self._append_segment_to_display(text, confidence)
+
+        # Auto-scroll to bottom
+        self.text_edit.ensureCursorVisible()
+
+    # ------------------------------------------------------------------
+    # Speaker name management
+    # ------------------------------------------------------------------
+
+    def set_speaker_names(self, names: Dict[str, str]) -> None:
+        """Set the speaker display name mapping and rebuild the display.
+
+        Args:
+            names: Mapping from raw speaker labels to display names.
+        """
+        self._speaker_names = dict(names)
+        self._rebuild_display()
+
+    def get_speaker_names(self) -> Dict[str, str]:
+        """Return a copy of the current speaker name mapping."""
+        return dict(self._speaker_names)
+
+    def _display_speaker_for(self, raw_label: str) -> str:
+        """Resolve a raw speaker label to its display form."""
+        if raw_label in self._speaker_names:
+            return self._speaker_names[raw_label]
+        return raw_label
+
+    # ------------------------------------------------------------------
+    # Display helpers
+    # ------------------------------------------------------------------
+
+    def _insert_speaker_label(self, speaker_id: str) -> None:
+        """Insert a coloured speaker label at the current cursor position.
+
+        Uses QTextCharFormat with bold, coloured text.  No anchor — the
+        CC overlay does not support speaker name editing.
+        """
+        cursor = self.text_edit.textCursor()
+        color = speaker_color(speaker_id)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        fmt.setFontWeight(QFont.Weight.Bold)
+        cursor.insertText(f"[{speaker_id}] ", fmt)
+
+    def _append_segment_to_display(self, text: str, confidence: int) -> None:
+        """Append escaped text to the current line with confidence colour."""
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        # Space between segments
+        if (self.phrases
+                and self.current_phrase_idx >= 0
+                and self.phrases[self.current_phrase_idx].segments
+                and len(self.phrases[self.current_phrase_idx].segments) > 1):
+            cursor.insertText(" ")
+
+        color = self._get_confidence_color(confidence)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        fmt.setFontWeight(QFont.Weight.Normal)
+        cursor.insertText(_escape_html(text), fmt)
+
+    def _replace_segment_in_display(self, phrase_idx: int, segment_idx: int,
+                                    text: str, confidence: int) -> None:
+        """Replace a specific segment in the display without full rebuild."""
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+
+        # Navigate to correct phrase block
+        for _ in range(phrase_idx):
+            cursor.movePosition(QTextCursor.MoveOperation.NextBlock)
+
+        # Navigate to correct segment within phrase (segments separated by spaces)
+        for _ in range(segment_idx):
+            cursor.movePosition(QTextCursor.MoveOperation.NextWord)
+
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfWord)
+        if segment_idx < len(self.phrases[phrase_idx].segments) - 1:
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfWord,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+        else:
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+
+        color = self._get_confidence_color(confidence)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        fmt.setFontWeight(QFont.Weight.Normal)
+        cursor.insertText(_escape_html(text), fmt)
+
+    def _rebuild_display(self) -> None:
+        """Rebuild the entire text display from stored phrases."""
+        self.text_edit.clear()
+        for i, phrase in enumerate(self.phrases):
+            if i > 0:
+                cursor = self.text_edit.textCursor()
+                cursor.insertBlock()
+
+            if phrase.speaker_id:
+                display_name = self._display_speaker_for(phrase.speaker_id)
+                self._insert_speaker_label(display_name)
+
+            for seg_idx, (seg_text, seg_conf) in enumerate(
+                zip(phrase.segments, phrase.confidences)
+            ):
+                if seg_idx > 0:
+                    # Insert space between segments
+                    cursor = self.text_edit.textCursor()
+                    cursor.movePosition(QTextCursor.MoveOperation.End)
+                    cursor.insertText(" ")
+                self._append_segment_to_display(seg_text, seg_conf)
+
+    def _get_confidence_color(self, confidence: int) -> str:
+        """Get colour for confidence — delegates to canonical thresholds (MEM027)."""
+        return get_confidence_color(confidence)
+
+    # ------------------------------------------------------------------
+    # Fade helpers (matching FloatingTranscriptPanel pattern)
+    # ------------------------------------------------------------------
+
+    def _start_fade_in(self) -> None:
+        """Animate opacity 0 → 1, then show."""
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+        self._apply_theme()
+        self.setWindowOpacity(0.0)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._fade_step = 0
+        self._fade_direction = 1
+        self._fade_timer = QTimer(self)
+        self._fade_timer.timeout.connect(self._on_fade_tick)
+        self._fade_timer.start(self._FADE_STEP_MS)
+
+    def _start_fade_out(self) -> None:
+        """Animate opacity 1 → 0, then hide."""
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+        self.setWindowOpacity(1.0)
+        self._fade_step = 0
+        self._fade_direction = -1
+        self._fade_timer = QTimer(self)
+        self._fade_timer.timeout.connect(self._on_fade_tick)
+        self._fade_timer.start(self._FADE_STEP_MS)
+
+    def _on_fade_tick(self) -> None:
+        """Process one step of a fade animation."""
+        self._fade_step += 1
+        progress = self._fade_step / self._FADE_STEPS
+        if self._fade_direction == 1:
+            self.setWindowOpacity(min(progress, 1.0))
+        else:
+            self.setWindowOpacity(max(1.0 - progress, 0.0))
+        if self._fade_step >= self._FADE_STEPS:
+            self._fade_timer.stop()
+            if self._fade_direction == -1:
+                self.hide()
+                self.setWindowOpacity(1.0)
+                logger.debug(
+                    "CC overlay: fade-out complete, hidden, content=%s",
+                    self._has_content,
+                )
+
+
 class FloatingSettingsPanel(QWidget):
-    """Floating settings panel with model selection and performance monitoring."""
-    
+    """Frameless Aetheric Glass settings shell with sidebar navigation.
+
+    Hosts Settings, Performance, and History sections in a left sidebar +
+    right content stack layout. No internal title bar or close button —
+    the shell is closed via the widget's settings affordance or hide_panel().
+    """
+
     closed = pyqtSignal()
     model_changed = pyqtSignal(str)  # Emit model name when changed
+
+    # Nav page indices — correspond to QStackedWidget indices
+    _NAV_SETTINGS = 0
+    _NAV_PERFORMANCE = 1
+    _NAV_HISTORY = 2
 
     def __init__(self, parent: Optional[QWidget] = None,
                  controller: object = None, tray_manager: object = None,
                  main_widget: object = None):
         super().__init__(parent)
+        self.setObjectName("AethericSettingsShell")
         
         # Store optional references
         self._controller = controller
         self._tray_manager = tray_manager
         self._main_widget = main_widget
+
+        # -- Docked-pair state (T03: recursion-guarded movement sync) --
+        self._docked_widget: Optional[QWidget] = None  # the MeetAndReadWidget
+        self._dock_offset: QPoint = QPoint()  # panel.pos() - widget.pos() at dock time
+        self._syncing_docked_pair: bool = False  # guard flag to prevent recursion
 
         # -- Performance backend instances (wired in T03) --
         self._resource_monitor = ResourceMonitor(
@@ -1964,7 +2505,7 @@ class FloatingSettingsPanel(QWidget):
         self._benchmark_runner: Optional[BenchmarkRunner] = None
         self._benchmark_history: List[dict] = []  # last 5 results as dicts
 
-        # -- Track whether Performance tab is active --
+        # -- Track whether Performance page is active --
         self._perf_tab_active = False
 
         # Window settings
@@ -1973,53 +2514,96 @@ class FloatingSettingsPanel(QWidget):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
-        
-        # Size — resizable with min/max bounds
-        self.setMinimumSize(280, 400)
-        self.setMaximumSize(500, 800)
-        
-        # Style — applied via _apply_theme() at end of __init__
-        
-        # Layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-        
-        # Header with title and close button (matches transcript panel)
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(5)
-        
-        self._title_label = QLabel("Settings")
-        header_layout.addWidget(self._title_label)
-        header_layout.addStretch()
-        
-        self._close_btn = QPushButton("×")
-        self._close_btn.setFixedSize(24, 24)
-        self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._close_btn.setToolTip("Close panel")
-        self._close_btn.clicked.connect(self.hide_panel)
-        header_layout.addWidget(self._close_btn)
-        
-        layout.addLayout(header_layout)
+        # Glass pair: translucent background matching the widget's glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
 
-        # Resize grip — direct child of panel (not in layout) so it stays at bottom-right
-        self._resize_grip = QSizeGrip(self)
-        self._resize_grip.setFixedSize(16, 16)
-        self._resize_grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        self._resize_grip.show()
+        # Glass opacity — matches transcript panel
+        self.setWindowOpacity(0.87)
+
+        # Size — wider to accommodate sidebar + content stack
+        self.setMinimumSize(420, 400)
+        self.setMaximumSize(700, 800)
 
         # ------------------------------------------------------------------
-        # Tab widget — Settings and Performance tabs
+        # Root layout: horizontal sidebar + content stack
         # ------------------------------------------------------------------
-        self._tab_widget = QTabWidget()
-        layout.addWidget(self._tab_widget)
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
         # ------------------------------------------------------------------
-        # Settings tab — existing model selection + hardware info
+        # Left sidebar
         # ------------------------------------------------------------------
-        settings_tab = QWidget()
-        settings_layout = QVBoxLayout(settings_tab)
-        settings_layout.setContentsMargins(6, 6, 6, 6)
+        self._sidebar = QWidget()
+        self._sidebar.setObjectName("AethericSidebar")
+        self._sidebar.setFixedWidth(160)
+        sidebar_layout = QVBoxLayout(self._sidebar)
+        sidebar_layout.setContentsMargins(12, 16, 12, 12)
+        sidebar_layout.setSpacing(6)
+
+        # Navigation buttons
+        self._nav_buttons: List[QPushButton] = []
+
+        # Settings nav
+        self._nav_settings_btn = QPushButton("⚙  Settings")
+        self._nav_settings_btn.setObjectName("AethericNavButton")
+        self._nav_settings_btn.setCheckable(True)
+        self._nav_settings_btn.setChecked(True)
+        self._nav_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._nav_settings_btn.setProperty("nav_id", "settings")
+        self._nav_settings_btn.clicked.connect(lambda: self._on_nav_clicked(self._NAV_SETTINGS))
+        sidebar_layout.addWidget(self._nav_settings_btn)
+        self._nav_buttons.append(self._nav_settings_btn)
+
+        # Performance nav
+        self._nav_performance_btn = QPushButton("📊  Performance")
+        self._nav_performance_btn.setObjectName("AethericNavButton")
+        self._nav_performance_btn.setCheckable(True)
+        self._nav_performance_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._nav_performance_btn.setProperty("nav_id", "performance")
+        self._nav_performance_btn.clicked.connect(lambda: self._on_nav_clicked(self._NAV_PERFORMANCE))
+        sidebar_layout.addWidget(self._nav_performance_btn)
+        self._nav_buttons.append(self._nav_performance_btn)
+
+        # History nav (placeholder — S02 builds the real list)
+        self._nav_history_btn = QPushButton("🕐  History")
+        self._nav_history_btn.setObjectName("AethericNavButton")
+        self._nav_history_btn.setCheckable(True)
+        self._nav_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._nav_history_btn.setProperty("nav_id", "history")
+        self._nav_history_btn.clicked.connect(lambda: self._on_nav_clicked(self._NAV_HISTORY))
+        sidebar_layout.addWidget(self._nav_history_btn)
+        self._nav_buttons.append(self._nav_history_btn)
+
+        sidebar_layout.addStretch()
+
+        # Dock bay placeholder — T03 will align the real widget over/into this
+        self._dock_bay = QWidget()
+        self._dock_bay.setObjectName("AethericDockBay")
+        self._dock_bay.setFixedHeight(48)
+        dock_bay_layout = QVBoxLayout(self._dock_bay)
+        dock_bay_layout.setContentsMargins(4, 4, 4, 4)
+        self._dock_bay_label = QLabel("Widget Dock")
+        self._dock_bay_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dock_bay_layout.addWidget(self._dock_bay_label)
+        sidebar_layout.addWidget(self._dock_bay)
+
+        root_layout.addWidget(self._sidebar)
+
+        # ------------------------------------------------------------------
+        # Right content stack (QStackedWidget replacing QTabWidget)
+        # ------------------------------------------------------------------
+        self._content_stack = QStackedWidget()
+        self._content_stack.setObjectName("AethericContentStack")
+        root_layout.addWidget(self._content_stack, 1)
+
+        # ------------------------------------------------------------------
+        # Page 0: Settings — model selection + hardware info
+        # ------------------------------------------------------------------
+        settings_page = QWidget()
+        settings_layout = QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(12, 16, 12, 12)
         settings_layout.setSpacing(5)
 
         # Model selection — Live Model dropdown
@@ -2027,6 +2611,7 @@ class FloatingSettingsPanel(QWidget):
         settings_layout.addWidget(self._live_model_label)
 
         self._live_model_combo = QComboBox()
+        self._live_model_combo.setObjectName("AethericComboBox")
         self._populate_model_dropdown(self._live_model_combo, "realtime_model_size")
         self._live_model_combo.currentIndexChanged.connect(self._on_live_model_changed)
         settings_layout.addWidget(self._live_model_combo)
@@ -2036,6 +2621,7 @@ class FloatingSettingsPanel(QWidget):
         settings_layout.addWidget(self._postprocess_model_label)
 
         self._postprocess_model_combo = QComboBox()
+        self._postprocess_model_combo.setObjectName("AethericComboBox")
         self._populate_model_dropdown(self._postprocess_model_combo, "postprocess_model_size")
         self._postprocess_model_combo.currentIndexChanged.connect(self._on_postprocess_model_changed)
         settings_layout.addWidget(self._postprocess_model_combo)
@@ -2061,14 +2647,14 @@ class FloatingSettingsPanel(QWidget):
         settings_layout.addWidget(self._rec_label)
 
         settings_layout.addStretch()
-        self._tab_widget.addTab(settings_tab, "Settings")
+        self._content_stack.addWidget(settings_page)
 
         # ------------------------------------------------------------------
-        # Performance tab — live resource monitoring + benchmarks
+        # Page 1: Performance — live resource monitoring + benchmarks
         # ------------------------------------------------------------------
-        perf_tab = QWidget()
-        perf_layout = QVBoxLayout(perf_tab)
-        perf_layout.setContentsMargins(6, 6, 6, 6)
+        perf_page = QWidget()
+        perf_layout = QVBoxLayout(perf_page)
+        perf_layout.setContentsMargins(12, 16, 12, 12)
         perf_layout.setSpacing(6)
 
         # --- Resource Usage Section ---
@@ -2143,6 +2729,7 @@ class FloatingSettingsPanel(QWidget):
         model_row.addWidget(self._bench_model_lbl)
 
         self._benchmark_model_combo = QComboBox()
+        self._benchmark_model_combo.setObjectName("AethericComboBox")
 
         # Populate with all 5 models, default to current live model
         try:
@@ -2184,10 +2771,101 @@ class FloatingSettingsPanel(QWidget):
         perf_layout.addWidget(self._benchmark_history_label)
 
         perf_layout.addStretch()
-        self._tab_widget.addTab(perf_tab, "Performance")
+        self._content_stack.addWidget(perf_page)
 
-        # Connect tab change to manage ResourceMonitor lifecycle
-        self._tab_widget.currentChanged.connect(self._on_perf_tab_changed)
+        # ------------------------------------------------------------------
+        # Page 2: History — recording list, transcript viewer, scrub/delete
+        # ------------------------------------------------------------------
+        history_page = QWidget()
+        history_page.setObjectName("AethericHistoryPage")
+        history_layout = QVBoxLayout(history_page)
+        history_layout.setContentsMargins(6, 8, 6, 6)
+        history_layout.setSpacing(0)
+
+        self._history_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._history_splitter.setObjectName("AethericHistorySplitter")
+
+        # Top: recording list
+        self._history_list = QListWidget()
+        self._history_list.setObjectName("AethericHistoryList")
+        self._history_list.itemClicked.connect(self._on_history_item_clicked)
+        self._history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._history_list.customContextMenuRequested.connect(self._on_history_context_menu)
+        self._history_splitter.addWidget(self._history_list)
+
+        # Bottom: detail header bar + transcript viewer
+        viewer_container = QWidget()
+        viewer_layout = QVBoxLayout(viewer_container)
+        viewer_layout.setContentsMargins(0, 0, 0, 0)
+        viewer_layout.setSpacing(0)
+
+        # Detail header bar with Scrub/Delete buttons (hidden until selection)
+        self._history_detail_header = QFrame()
+        self._history_detail_header.setObjectName("AethericHistoryHeader")
+        detail_header_layout = QHBoxLayout(self._history_detail_header)
+        detail_header_layout.setContentsMargins(6, 2, 6, 2)
+        detail_header_layout.setSpacing(4)
+
+        detail_header_layout.addStretch()
+
+        self._scrub_btn = QPushButton("🔄 Scrub")
+        self._scrub_btn.setObjectName("AethericHistoryActionButton")
+        self._scrub_btn.setProperty("action", "scrub")
+        self._scrub_btn.setFixedHeight(26)
+        self._scrub_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._scrub_btn.setToolTip("Re-transcribe with a different model")
+        self._scrub_btn.clicked.connect(self._on_scrub_clicked)
+        detail_header_layout.addWidget(self._scrub_btn)
+
+        self._delete_btn = QPushButton("🗑 Delete")
+        self._delete_btn.setObjectName("AethericHistoryActionButton")
+        self._delete_btn.setProperty("action", "delete")
+        self._delete_btn.setFixedHeight(26)
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.setToolTip("Delete this recording")
+        self._delete_btn.clicked.connect(self._on_delete_btn_clicked)
+        detail_header_layout.addWidget(self._delete_btn)
+
+        self._history_detail_header.hide()
+        viewer_layout.addWidget(self._history_detail_header)
+
+        # Transcript viewer (read-only, supports anchor clicks)
+        self._history_viewer = QTextBrowser()
+        self._history_viewer.setObjectName("AethericHistoryViewer")
+        self._history_viewer.setReadOnly(True)
+        self._history_viewer.setFrameShape(QFrame.Shape.NoFrame)
+        self._history_viewer.setPlaceholderText("Select a recording to view its transcript")
+        self._history_viewer.setOpenExternalLinks(False)
+        self._history_viewer.setOpenLinks(False)
+        self._history_viewer.anchorClicked.connect(self._on_history_anchor_clicked)
+        viewer_layout.addWidget(self._history_viewer)
+
+        self._history_splitter.addWidget(viewer_container)
+
+        # 40% list / 60% viewer
+        self._history_splitter.setSizes([160, 240])
+
+        history_layout.addWidget(self._history_splitter)
+        self._content_stack.addWidget(history_page)
+
+        # -- History state attributes --
+        self._current_history_md_path: Optional[Path] = None
+
+        # Scrub state
+        self._scrub_runner: Optional[object] = None
+        self._scrub_model_size: Optional[str] = None
+        self._scrub_sidecar_path: Optional[str] = None
+        self._scrub_original_html: Optional[str] = None
+        self._is_scrubbing: bool = False
+        self._is_comparison_mode: bool = False
+
+        # ------------------------------------------------------------------
+        # Resize grip — direct child of panel, positioned at bottom-right
+        # ------------------------------------------------------------------
+        self._resize_grip = QSizeGrip(self)
+        self._resize_grip.setFixedSize(16, 16)
+        self._resize_grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self._resize_grip.show()
 
         # Wire benchmark button
         self._benchmark_btn.clicked.connect(self._on_benchmark_clicked)
@@ -2222,7 +2900,7 @@ class FloatingSettingsPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _apply_theme(self) -> None:
-        """Apply theme-aware stylesheets to all settings panel widgets.
+        """Apply Aetheric Glass theme to all settings panel widgets.
 
         Idempotent and cheap — just re-sets stylesheets from the current
         palette.  Called once at end of __init__ and on desktop theme change.
@@ -2230,24 +2908,33 @@ class FloatingSettingsPanel(QWidget):
         p = current_palette()
         self._current_palette = p
 
-        # Panel base
-        self.setStyleSheet(panel_base_css(p, "FloatingSettingsPanel"))
+        # Panel shell — Aetheric Glass
+        self.setStyleSheet(aetheric_settings_shell_css(p))
 
-        # Header widgets
-        self._title_label.setStyleSheet(title_css(p))
-        self._close_btn.setStyleSheet(header_button_css(p, "close"))
+        # Sidebar
+        self._sidebar.setStyleSheet(aetheric_sidebar_css(p))
 
-        # Resize grip
-        self._resize_grip.setStyleSheet(resize_grip_css(p))
+        # Nav buttons
+        nav_css = aetheric_nav_button_css(p)
+        for btn in self._nav_buttons:
+            btn.setStyleSheet(nav_css)
 
-        # Tabs
-        self._tab_widget.setStyleSheet(tab_widget_css(p))
+        # Dock bay
+        self._dock_bay.setStyleSheet(aetheric_dock_bay_css(p))
+        self._dock_bay_label.setStyleSheet(
+            f"QLabel {{ color: {AETHERIC_NAV_INACTIVE_TEXT}; font-size: 10px; }}"
+        )
 
-        # Settings tab — section labels, combos, hardware labels
+        # Content stack — transparent so per-page styles show through
+        self._content_stack.setStyleSheet(
+            "QStackedWidget { background-color: transparent; border: none; }"
+        )
+
+        # Settings page — labels and combos
         self._live_model_label.setStyleSheet(status_label_css(p))
-        self._live_model_combo.setStyleSheet(combo_box_css(p))
+        self._live_model_combo.setStyleSheet(aetheric_combo_box_css(p))
         self._postprocess_model_label.setStyleSheet(status_label_css(p))
-        self._postprocess_model_combo.setStyleSheet(combo_box_css(p))
+        self._postprocess_model_combo.setStyleSheet(aetheric_combo_box_css(p))
         self._hardware_label.setStyleSheet(status_label_css(p))
         self._ram_label.setStyleSheet(info_label_css(p))
         self._cpu_info_label.setStyleSheet(info_label_css(p))
@@ -2255,7 +2942,7 @@ class FloatingSettingsPanel(QWidget):
             f"QLabel {{ font-weight: bold; color: {p.accent}; }}"
         )
 
-        # Performance tab — section headers
+        # Performance page — section headers
         self._resource_header.setStyleSheet(
             f"QLabel {{ color: {p.accent}; font-weight: bold; font-size: 12px; padding: 2px; }}"
         )
@@ -2295,17 +2982,32 @@ class FloatingSettingsPanel(QWidget):
 
         # Benchmark section
         self._bench_model_lbl.setStyleSheet(info_label_css(p))
-        self._benchmark_model_combo.setStyleSheet(
-            combo_box_css(p, accent_color=p.accent)
-        )
+        self._benchmark_model_combo.setStyleSheet(aetheric_combo_box_css(p))
         self._benchmark_btn.setStyleSheet(action_button_css(p, "benchmark"))
         self._history_header.setStyleSheet(status_label_css(p))
         self._benchmark_history_label.setStyleSheet(
             f"QLabel {{ color: {p.text_disabled}; font-size: 11px; padding: 2px; }}"
         )
 
+        # History page — Aetheric scoped styles
+        history_page = self._content_stack.widget(self._NAV_HISTORY)
+        if history_page is not None:
+            history_page.setStyleSheet(
+                "QWidget#AethericHistoryPage { background-color: transparent; }"
+            )
+        self._history_splitter.setStyleSheet(aetheric_history_splitter_css(p))
+        self._history_list.setStyleSheet(aetheric_history_list_css(p))
+        self._history_detail_header.setStyleSheet(aetheric_history_header_css(p))
+        history_btn_css = aetheric_history_action_button_css(p)
+        self._scrub_btn.setStyleSheet(history_btn_css)
+        self._delete_btn.setStyleSheet(history_btn_css)
+        self._history_viewer.setStyleSheet(aetheric_history_viewer_css(p))
+
+        # Resize grip
+        self._resize_grip.setStyleSheet(resize_grip_css(p))
+
         scheme_name = "dark" if p is DARK_PALETTE else "light"
-        logger.info("Applied %s theme to FloatingSettingsPanel", scheme_name)
+        logger.info("Applied %s Aetheric theme to FloatingSettingsPanel", scheme_name)
 
     def show_panel(self):
         """Show the panel with a 150ms fade-in and start monitoring if on Performance tab."""
@@ -2316,9 +3018,20 @@ class FloatingSettingsPanel(QWidget):
             self._metrics_timer.start()
     
     def hide_panel(self):
-        """Hide the panel with a 150ms fade-out and stop monitoring."""
+        """Hide the panel with a 150ms fade-out and stop monitoring.
+
+        Detaches the dock relation so panel hide doesn't try to sync moves.
+        Notifies the main widget to clear its docked state.
+        """
+        self.detach_dock()
         self._stop_resource_monitor()
         self._metrics_timer.stop()
+        # Notify the main widget to clear its docked state
+        if self._main_widget is not None:
+            try:
+                self._main_widget._settings_docked = False
+            except Exception:
+                pass
         self._start_fade_out()
 
     # ------------------------------------------------------------------
@@ -2372,41 +3085,148 @@ class FloatingSettingsPanel(QWidget):
     
     def dock_to_widget(self, widget: QWidget, position: str = "left") -> None:
         """
-        Position panel next to a widget.
-        
+        Position panel next to a widget, aligning the widget over the
+        sidebar's dock bay for the Aetheric Glass settings shell.
+
+        For the settings panel (objectName AethericSettingsShell), this uses
+        a dedicated dock-bay alignment: the panel is placed so the widget's
+        center overlaps the sidebar's bottom dock bay area.
+
         Args:
             widget: The main widget to dock to
-            position: "left", "right", "top", "bottom"
+            position: "left", "right", "top", "bottom" (used only for
+                      non-settings panels; settings always uses dock-bay mode)
         """
+        if not widget or not widget.isVisible():
+            return
+
         # Get widget position in screen coordinates
         widget_pos = widget.mapToGlobal(widget.rect().topLeft())
         widget_rect = widget.geometry()
-        
-        # Calculate panel position
-        if position == "left":
-            x = widget_pos.x() - self.width() - 10
-            y = widget_pos.y()
-        elif position == "right":
-            x = widget_pos.x() + widget_rect.width() + 10
-            y = widget_pos.y()
-        elif position == "top":
-            x = widget_pos.x()
-            y = widget_pos.y() - self.height() - 10
-        else:  # bottom
-            x = widget_pos.x()
-            y = widget_pos.y() + widget_rect.height() + 10
-        
+        widget_center_x = widget_pos.x() + widget_rect.width() // 2
+        widget_center_y = widget_pos.y() + widget_rect.height() // 2
+
+        panel_w = self.width()
+        panel_h = self.height()
+        sidebar_w = 160  # sidebar fixed width
+
+        # Dock-bay alignment: position the panel so the widget center
+        # falls over the sidebar's dock bay (bottom-left area).
+        # The dock bay is at the bottom of the sidebar, horizontally centered
+        # within the sidebar width.
+        dock_bay_center_x = panel_w - sidebar_w // 2  # right edge of panel (sidebar side)
+        dock_bay_center_y = panel_h - 24  # bottom of panel (dock bay area)
+
+        x = widget_center_x - dock_bay_center_x
+        y = widget_center_y - dock_bay_center_y
+
         self.move(x, y)
+
+        # Record the offset so subsequent moves preserve the alignment
+        widget_screen_pos = widget.pos()
+        self._dock_offset = QPoint(x - widget_screen_pos.x(), y - widget_screen_pos.y())
+
+    # ------------------------------------------------------------------
+    # Docked-pair helpers (T03)
+    # ------------------------------------------------------------------
+
+    def attach_dock(self, widget: QWidget) -> None:
+        """Attach to a widget for docked-pair movement.
+
+        Records the positional offset and logs the attach event.
+        Safe to call multiple times — no-ops if already attached.
+
+        Args:
+            widget: The MeetAndReadWidget to dock with.
+        """
+        if widget is None:
+            return
+        self._docked_widget = widget
+        # Record offset: panel.pos() - widget.pos()
+        self._dock_offset = self.pos() - widget.pos()
+        logger.debug(
+            "Settings dock attached: offset=(%d, %d)",
+            self._dock_offset.x(), self._dock_offset.y(),
+        )
+
+    def detach_dock(self) -> None:
+        """Detach from the docked widget.
+
+        Clears the dock relation. The widget stays at its current position.
+        """
+        if self._docked_widget is not None:
+            logger.debug("Settings dock detached")
+        self._docked_widget = None
+        self._dock_offset = QPoint()
+
+    @property
+    def is_docked(self) -> bool:
+        """True when the panel is actively docked to a widget."""
+        return self._docked_widget is not None and self.isVisible()
+
+    def moveEvent(self, event) -> None:
+        """Sync docked widget position when the panel is moved by the user.
+
+        Applies the stored dock offset to move the widget by the same
+        delta.  The ``_syncing_docked_pair`` guard prevents recursion
+        when the widget's own moveEvent triggers a panel reposition.
+
+        Only syncs when the panel is visible and docked.
+        """
+        super().moveEvent(event)
+
+        if self._syncing_docked_pair:
+            return
+        if not self.is_docked or self._docked_widget is None:
+            return
+        if not self._docked_widget.isVisible():
+            return
+
+        # Calculate new position for widget using stored offset
+        new_widget_pos = self.pos() - self._dock_offset
+
+        # Skip if the widget is already at the target position (no-op guard)
+        current_widget_pos = self._docked_widget.pos()
+        if (new_widget_pos.x() == current_widget_pos.x() and
+                new_widget_pos.y() == current_widget_pos.y()):
+            return
+
+        # Apply the delta under the guard
+        self._syncing_docked_pair = True
+        try:
+            self._docked_widget.move(new_widget_pos)
+            logger.debug(
+                "Panel→Widget sync: widget moved to (%d, %d)",
+                new_widget_pos.x(), new_widget_pos.y(),
+            )
+        finally:
+            self._syncing_docked_pair = False
     
     # ------------------------------------------------------------------
     # Performance tab wiring (T03)
     # ------------------------------------------------------------------
 
-    def _on_perf_tab_changed(self, index: int) -> None:
-        """Handle tab changes — start/stop ResourceMonitor based on Performance tab visibility."""
-        # Performance tab is index 1
-        self._perf_tab_active = (index == 1)
+    def _on_nav_clicked(self, page_index: int) -> None:
+        """Handle sidebar nav clicks — switch page and manage ResourceMonitor.
 
+        Args:
+            page_index: QStackedWidget index (_NAV_SETTINGS, _NAV_PERFORMANCE, _NAV_HISTORY).
+        """
+        if page_index < 0 or page_index >= self._content_stack.count():
+            logger.warning("Invalid nav index %d — ignoring", page_index)
+            return
+
+        # Update checked state on nav buttons (exclusive toggle)
+        for i, btn in enumerate(self._nav_buttons):
+            btn.setChecked(i == page_index)
+
+        # Switch content stack
+        self._content_stack.setCurrentIndex(page_index)
+
+        # Track performance active state
+        self._perf_tab_active = (page_index == self._NAV_PERFORMANCE)
+
+        # Start/stop monitoring based on visibility
         if self._perf_tab_active and self.isVisible():
             self._start_resource_monitor()
             self._metrics_timer.start()
@@ -2414,6 +3234,13 @@ class FloatingSettingsPanel(QWidget):
         else:
             self._stop_resource_monitor()
             self._metrics_timer.stop()
+
+        # Refresh History when navigating to it
+        if page_index == self._NAV_HISTORY:
+            self._refresh_history()
+
+        nav_id = self._nav_buttons[page_index].property("nav_id") if page_index < len(self._nav_buttons) else "?"
+        logger.info("Settings nav changed to '%s' (index %d)", nav_id, page_index)
 
     def _start_resource_monitor(self) -> None:
         """Start the ResourceMonitor if not already running."""
@@ -2857,6 +3684,778 @@ class FloatingSettingsPanel(QWidget):
             logger.warning("Failed to update benchmark history in config: %s", exc)
 
         self._refresh_dropdown_wer()
+
+    # ------------------------------------------------------------------
+    # History page methods (adapted from FloatingTranscriptPanel)
+    # ------------------------------------------------------------------
+
+    def _refresh_history(self) -> None:
+        """Re-scan recordings and repopulate the history list."""
+        try:
+            from meetandread.transcription.transcript_scanner import scan_recordings
+        except ImportError:
+            logger.warning("transcript_scanner not available — cannot populate history")
+            return
+        self._populate_history_list(scan_recordings())
+
+    def _populate_history_list(self, recordings: list) -> None:
+        """Populate the history QListWidget from a list of RecordingMeta.
+
+        Args:
+            recordings: List of RecordingMeta objects (expected sorted newest-first).
+        """
+        self._history_list.clear()
+        for meta in recordings:
+            display_date = meta.recording_time
+            if display_date:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(display_date)
+                    display_date = dt.strftime("%Y-%m-%d %H:%M")
+                except (ValueError, TypeError):
+                    pass
+
+            if meta.word_count == 0:
+                display_text = f"{display_date} | (Empty recording)"
+            else:
+                display_text = (
+                    f"{display_date} | {meta.word_count} words"
+                    f" | {meta.speaker_count} speakers"
+                )
+
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, str(meta.path))
+            self._history_list.addItem(item)
+
+    def _on_history_item_clicked(self, item: QListWidgetItem) -> None:
+        """Load and display the transcript for the clicked history item."""
+        if self._is_comparison_mode:
+            self._hide_scrub_accept_reject()
+
+        md_path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not md_path_str:
+            return
+        md_path = Path(md_path_str)
+        if not md_path.exists():
+            self._current_history_md_path = None
+            self._history_viewer.setPlainText(f"(File not found: {md_path})")
+            self._history_detail_header.show()
+            return
+
+        self._current_history_md_path = md_path
+        self._history_detail_header.show()
+        html = self._render_history_transcript(md_path)
+        if html is not None:
+            self._history_viewer.setHtml(html)
+        else:
+            try:
+                content = md_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                self._history_viewer.setPlainText(f"(Error reading file: {exc})")
+                return
+            footer_marker = "\n---\n\n<!-- METADATA:"
+            marker_idx = content.find(footer_marker)
+            if marker_idx != -1:
+                content = content[:marker_idx]
+            self._history_viewer.setMarkdown(content)
+
+    @staticmethod
+    def _extract_transcript_body(md_path: Optional[Path]) -> str:
+        """Extract the markdown body (before METADATA footer) from a transcript.
+
+        Args:
+            md_path: Path to the transcript .md file.
+
+        Returns:
+            The markdown body text, or an error message string.
+        """
+        if md_path is None or not md_path.exists():
+            return "(file not found)"
+        try:
+            content = md_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"(error reading file: {exc})"
+
+        footer_marker = "\n---\n\n<!-- METADATA:"
+        marker_idx = content.find(footer_marker)
+        if marker_idx != -1:
+            content = content[:marker_idx]
+        return content.strip()
+
+    def _render_history_transcript(self, md_path: Path) -> Optional[str]:
+        """Render a transcript .md file as HTML with clickable speaker anchors.
+
+        Reads the .md file, parses the JSON metadata footer to get speakers,
+        and returns HTML where each speaker label is an anchor tag with
+        format ``speaker:{speaker_label}``.
+
+        Args:
+            md_path: Path to the transcript .md file.
+
+        Returns:
+            HTML string for the viewer, or None if no metadata is found.
+        """
+        try:
+            content = md_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.error("Failed to read transcript for rendering: %s: %s", md_path, exc)
+            return None
+
+        footer_marker = "\n---\n\n<!-- METADATA:"
+        marker_idx = content.find(footer_marker)
+        if marker_idx == -1:
+            return None
+
+        md_body = content[:marker_idx]
+
+        metadata_text = content[marker_idx + len(footer_marker):]
+        if metadata_text.strip().endswith(" -->"):
+            metadata_text = metadata_text.strip()[:-len(" -->")]
+
+        try:
+            data = json.loads(metadata_text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Malformed metadata in %s: %s", md_path, exc)
+            return None
+
+        speakers = []
+        seen = set()
+        for word in data.get("words", []):
+            sid = word.get("speaker_id")
+            if sid is not None and sid not in seen:
+                seen.add(sid)
+                speakers.append(sid)
+
+        if not speakers:
+            return None
+
+        html_lines = []
+        for line in md_body.splitlines():
+            match = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+            if match:
+                speaker_label = match.group(1)
+                if speaker_label in seen:
+                    color = speaker_color(speaker_label)
+                    html_lines.append(
+                        f'<p><a href="speaker:{speaker_label}" '
+                        f'style="color:{color}; font-weight:bold; text-decoration:none;">'
+                        f'[{speaker_label}]</a></p>'
+                    )
+                else:
+                    html_lines.append(f"<p><b>{speaker_label}</b></p>")
+            else:
+                escaped = (
+                    line.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                )
+                if escaped.strip():
+                    escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+                    html_lines.append(f"<p>{escaped}</p>")
+                elif not escaped:
+                    html_lines.append("<br>")
+
+        return "\n".join(html_lines)
+
+    def _reselect_history_item(self, md_path: Path) -> None:
+        """Re-select a history list item by its transcript path.
+
+        Args:
+            md_path: Path to the transcript .md file to re-select.
+        """
+        md_str = str(md_path)
+        for i in range(self._history_list.count()):
+            item = self._history_list.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == md_str:
+                self._history_list.setCurrentItem(item)
+                return
+        logger.debug("Could not re-select history item for %s", md_path)
+
+    def _on_history_context_menu(self, pos) -> None:
+        """Show context menu on history list items."""
+        item = self._history_list.itemAt(pos)
+        if item is None:
+            return
+
+        menu = QMenu(self._history_list)
+        p = current_palette()
+        menu.setStyleSheet(context_menu_css(p, accent_color=p.danger))
+
+        scrub_action = menu.addAction("🔄  Scrub Recording")
+        delete_action = menu.addAction("🗑  Delete Recording")
+        scrub_action.triggered.connect(lambda: self._on_scrub_clicked())
+        delete_action.triggered.connect(lambda: self._delete_recording(item))
+        menu.exec(self._history_list.mapToGlobal(pos))
+
+    def _on_delete_btn_clicked(self) -> None:
+        """Handle Delete button click in the detail header."""
+        current = self._history_list.currentItem()
+        if current is None:
+            return
+        self._delete_recording(current)
+
+    def _delete_recording(self, item: QListWidgetItem) -> None:
+        """Delete a recording after user confirmation."""
+        md_path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not md_path_str:
+            return
+
+        md_path = Path(md_path_str)
+        stem = md_path.stem
+        recording_name = item.text().split("|")[0].strip()
+
+        try:
+            from meetandread.recording.management import enumerate_recording_files, delete_recording
+            files = enumerate_recording_files(stem)
+        except Exception as exc:
+            logger.error("Failed to enumerate recording files: %s", exc)
+            files = []
+
+        file_count = len(files)
+
+        parent = self.parent() if self.parent() else self
+        reply = QMessageBox.question(
+            parent,
+            "Delete Recording",
+            f"Delete '{recording_name}'?\n\n"
+            f"This will permanently remove {file_count} file{'s' if file_count != 1 else ''}.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            count, deleted = delete_recording(stem)
+            logger.info(
+                "Deleted recording '%s': %d files removed",
+                recording_name, count,
+            )
+        except Exception as exc:
+            logger.error("Failed to delete recording '%s': %s", recording_name, exc)
+            QMessageBox.warning(
+                parent,
+                "Delete Failed",
+                f"Could not delete recording '{recording_name}'.\n\n{exc}",
+            )
+            return
+
+        self._current_history_md_path = None
+        self._history_viewer.clear()
+        self._history_viewer.setPlaceholderText("Select a recording to view its transcript")
+        self._history_detail_header.hide()
+
+        self._refresh_history()
+
+    def _on_history_anchor_clicked(self, url: QUrl) -> None:
+        """Handle clicks on speaker label anchors in the history viewer."""
+        link = url.toString()
+        prefix = "speaker:"
+        if not link.startswith(prefix):
+            return
+
+        old_name = link[len(prefix):]
+        if not old_name:
+            return
+
+        parent = self.parent() if self.parent() else self
+        name, ok = QInputDialog.getText(
+            parent,
+            "Rename Speaker",
+            f"Enter a new name for '{old_name}':",
+            text=old_name if not old_name.startswith("SPK_") else "",
+        )
+        if not ok or not name.strip():
+            return
+
+        new_name = name.strip()
+        if new_name == old_name:
+            return
+
+        md_path = self._current_history_md_path
+        if md_path is None or not md_path.exists():
+            logger.warning("No transcript file selected for rename")
+            return
+
+        try:
+            self._rename_speaker_in_file(md_path, old_name, new_name)
+        except Exception as exc:
+            logger.error(
+                "Failed to rename speaker '%s' -> '%s' in %s: %s",
+                old_name, new_name, md_path, exc,
+            )
+            return
+
+        try:
+            self._propagate_rename_to_signatures(md_path, old_name, new_name)
+        except Exception as exc:
+            logger.error(
+                "Failed to propagate rename to signature store for '%s' -> '%s': %s",
+                old_name, new_name, exc,
+            )
+
+        html = self._render_history_transcript(md_path)
+        if html is not None:
+            self._history_viewer.setHtml(html)
+        else:
+            self._history_viewer.setPlainText("(Error refreshing after rename)")
+
+    def _rename_speaker_in_file(
+        self, md_path: Path, old_name: str, new_name: str
+    ) -> None:
+        """Rename a speaker in a transcript .md file.
+
+        Updates both the JSON metadata (words and segments arrays) and the
+        markdown body speaker labels.
+        """
+        content = md_path.read_text(encoding="utf-8")
+
+        footer_marker = "\n---\n\n<!-- METADATA:"
+        marker_idx = content.find(footer_marker)
+        if marker_idx == -1:
+            logger.warning("No metadata footer in %s — cannot rename speaker", md_path)
+            return
+
+        md_body = content[:marker_idx]
+        metadata_text = content[marker_idx + len(footer_marker):]
+        if metadata_text.strip().endswith(" -->"):
+            metadata_text = metadata_text.strip()[:-len(" -->")]
+
+        try:
+            data = json.loads(metadata_text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Malformed metadata in %s: %s", md_path, exc)
+            return
+
+        # Update speaker names in words
+        for word in data.get("words", []):
+            if word.get("speaker_id") == old_name:
+                word["speaker_id"] = new_name
+
+        # Update speaker names in segments
+        for seg in data.get("segments", []):
+            if seg.get("speaker") == old_name:
+                seg["speaker"] = new_name
+
+        # Update speaker names in markdown body
+        md_body = md_body.replace(f"**{old_name}**", f"**{new_name}**")
+
+        # Write back
+        new_content = md_body + footer_marker + json.dumps(data, indent=2) + " -->\n"
+        md_path.write_text(new_content, encoding="utf-8")
+        logger.info("Renamed speaker '%s' -> '%s' in %s", old_name, new_name, md_path)
+
+    def _propagate_rename_to_signatures(
+        self, md_path: Path, old_name: str, new_name: str
+    ) -> None:
+        """Propagate a speaker rename to the VoiceSignatureStore (best-effort).
+
+        If the old speaker name has a saved embedding in the signature
+        database (located in the same directory as the transcript file),
+        saves the embedding under the new name and deletes the old entry.
+        """
+        try:
+            from meetandread.speaker.signatures import VoiceSignatureStore
+        except ImportError:
+            logger.warning(
+                "VoiceSignatureStore not available — skipping rename propagation"
+            )
+            return
+
+        db_path = md_path.parent / "speaker_signatures.db"
+        if not db_path.exists():
+            # Try the default data directory
+            try:
+                from meetandread.audio.storage.paths import get_recordings_dir
+                default_db = get_recordings_dir() / "speaker_signatures.db"
+                if default_db.exists():
+                    db_path = default_db
+                else:
+                    logger.info(
+                        "No signature database found — speaker '%s' not in store",
+                        old_name,
+                    )
+                    return
+            except Exception:
+                logger.info(
+                    "No signature database found — speaker '%s' not in store",
+                    old_name,
+                )
+                return
+
+        try:
+            with VoiceSignatureStore(db_path=str(db_path)) as store:
+                profiles = store.load_signatures()
+                old_profile = None
+                for profile in profiles:
+                    if profile.name == old_name:
+                        old_profile = profile
+                        break
+
+                if old_profile is None:
+                    logger.info(
+                        "Speaker '%s' not found in signature store — no propagation needed",
+                        old_name,
+                    )
+                    return
+
+                store.save_signature(
+                    new_name,
+                    old_profile.embedding,
+                    averaged_from_segments=old_profile.num_samples,
+                )
+                store.delete_signature(old_name)
+
+                logger.info(
+                    "Propagated rename '%s' -> '%s' to signature store at %s",
+                    old_name, new_name, db_path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to propagate rename to signature store: %s", exc,
+            )
+
+    def _on_scrub_clicked(self) -> None:
+        """Handle Scrub button click — placeholder for S03 full scrub."""
+        if self._is_scrubbing:
+            return
+
+        current = self._history_list.currentItem()
+        if current is None:
+            return
+
+        md_path_str = current.data(Qt.ItemDataRole.UserRole)
+        if not md_path_str:
+            return
+        md_path = Path(md_path_str)
+        stem = md_path.stem
+
+        # Check for WAV file
+        try:
+            from meetandread.audio.storage.paths import get_recordings_dir
+            wav_path = get_recordings_dir() / f"{stem}.wav"
+        except Exception:
+            wav_path = md_path.parent.parent / "recordings" / f"{stem}.wav"
+
+        if not wav_path.exists():
+            parent = self.parent() if self.parent() else self
+            QMessageBox.information(
+                parent,
+                "Cannot Scrub",
+                "Cannot scrub — audio file missing.\n\n"
+                "The original .wav recording file is required for re-transcription.",
+            )
+            return
+
+        # Show model picker dialog
+        dialog = self._create_scrub_dialog()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        model_size = dialog._model_combo.currentData()
+        if not model_size:
+            return
+
+        # Start the scrub
+        self._start_scrub(wav_path, md_path, model_size)
+
+    def _create_scrub_dialog(self) -> QDialog:
+        """Create the model picker dialog for scrub."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Scrub Recording")
+        dialog.setFixedSize(340, 180)
+        p = current_palette()
+        dialog.setStyleSheet(dialog_css(p))
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        title_label = QLabel("Re-transcribe with a different model:")
+        title_label.setStyleSheet(f"font-weight: bold; color: {p.info}; font-size: 13px;")
+        layout.addWidget(title_label)
+
+        combo = QComboBox()
+        combo.setStyleSheet(combo_box_css(p, accent_color=p.info))
+
+        try:
+            from meetandread.config import get_config
+            _cfg = get_config()
+            _bench_history = _cfg.transcription.benchmark_history
+            _default_model = _cfg.transcription.postprocess_model_size
+        except Exception:
+            _bench_history = {}
+            _default_model = "base"
+
+        _model_order = ["tiny", "base", "small", "medium", "large"]
+        _select_idx = 0
+        for _i, _mn in enumerate(_model_order):
+            _entry = _bench_history.get(_mn)
+            if _entry and "wer" in _entry:
+                _wer_pct = _entry["wer"] * 100
+                _item_text = f"{_mn} — WER: {_wer_pct:.1f}%"
+            else:
+                _item_text = f"{_mn} (not benchmarked)"
+            combo.addItem(_item_text, _mn)
+            if _mn == _default_model:
+                _select_idx = _i
+        combo.setCurrentIndex(_select_idx)
+
+        layout.addWidget(combo)
+        dialog._model_combo = combo
+
+        layout.addStretch()
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        btn_box.setStyleSheet(action_button_css(p, "dialog"))
+        btn_box.accepted.connect(dialog.accept)
+        btn_box.rejected.connect(dialog.reject)
+        layout.addWidget(btn_box)
+
+        return dialog
+
+    def _get_app_settings(self):
+        """Get the current AppSettings from config."""
+        try:
+            from meetandread.config import get_config
+            return get_config()
+        except Exception:
+            from meetandread.config.models import AppSettings
+            return AppSettings()
+
+    def _start_scrub(self, wav_path: Path, md_path: Path, model_size: str) -> None:
+        """Start a ScrubRunner background re-transcription."""
+        from meetandread.transcription.scrub import ScrubRunner
+
+        self._scrub_model_size = model_size
+        self._is_scrubbing = True
+        self._is_comparison_mode = False
+
+        self._scrub_original_html = self._history_viewer.toHtml()
+
+        self._scrub_btn.setEnabled(False)
+        self._scrub_btn.setText("Scrubbing... 0%")
+
+        self._scrub_runner = ScrubRunner(
+            settings=self._get_app_settings(),
+            on_progress=self._on_scrub_progress,
+            on_complete=self._on_scrub_complete,
+        )
+        self._scrub_sidecar_path = self._scrub_runner.scrub_recording(
+            wav_path, md_path, model_size,
+        )
+
+    def _on_scrub_progress(self, pct: int) -> None:
+        """Update scrub button text with progress percentage."""
+        from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+        QMetaObject.invokeMethod(
+            self._scrub_btn, "setText",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, f"Scrubbing... {pct}%"),
+        )
+
+    def _on_scrub_complete(self, sidecar_path: str, error: Optional[str]) -> None:
+        """Handle scrub completion."""
+        QTimer.singleShot(0, lambda: self._handle_scrub_complete(sidecar_path, error))
+
+    def _handle_scrub_complete(self, sidecar_path: str, error: Optional[str]) -> None:
+        """Process scrub completion on the GUI thread."""
+        self._is_scrubbing = False
+        self._scrub_btn.setEnabled(True)
+        self._scrub_btn.setText("🔄 Scrub")
+
+        if error:
+            parent = self.parent() if self.parent() else self
+            QMessageBox.warning(
+                parent,
+                "Scrub Failed",
+                f"Re-transcription failed:\n\n{error}",
+            )
+            logger.error("Scrub failed: %s", error)
+            return
+
+        self._show_scrub_comparison(sidecar_path)
+
+    def _show_scrub_comparison(self, sidecar_path: str) -> None:
+        """Show side-by-side comparison of original vs scrubbed transcript."""
+        sidecar = Path(sidecar_path)
+        if not sidecar.exists():
+            logger.warning("Sidecar not found for comparison: %s", sidecar_path)
+            return
+
+        self._is_comparison_mode = True
+        self._scrub_sidecar_path = sidecar_path
+
+        original_text = self._extract_transcript_body(
+            self._current_history_md_path
+        )
+        scrubbed_text = self._extract_transcript_body(sidecar)
+
+        html = f"""
+        <html>
+        <head><style>
+            body {{ margin: 0; padding: 4px; background-color: #2a2a2a; color: #fff; font-size: 12px; }}
+            .comparison {{ display: flex; gap: 8px; }}
+            .column {{ flex: 1; }}
+            .column-header {{
+                font-weight: bold;
+                padding: 4px 8px;
+                border-radius: 4px 4px 0 0;
+                font-size: 11px;
+                text-align: center;
+            }}
+            .original .column-header {{ background-color: #37474F; color: #B0BEC5; }}
+            .scrubbed .column-header {{ background-color: #1B5E20; color: #A5D6A7; }}
+            .content {{
+                padding: 6px 8px;
+                background-color: #333;
+                border-radius: 0 0 4px 4px;
+                min-height: 50px;
+                line-height: 1.4;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }}
+        </style></head>
+        <body>
+        <div class="comparison">
+            <div class="column original">
+                <div class="column-header">Original</div>
+                <div class="content">{_escape_html(original_text)}</div>
+            </div>
+            <div class="column scrubbed">
+                <div class="column-header">Scrubbed ({_escape_html(self._scrub_model_size or "?")})</div>
+                <div class="content">{_escape_html(scrubbed_text)}</div>
+            </div>
+        </div>
+        </body></html>
+        """
+
+        self._history_viewer.setHtml(html)
+        self._show_scrub_accept_reject()
+
+    def _show_scrub_accept_reject(self) -> None:
+        """Replace the scrub button with Accept/Reject during comparison mode."""
+        self._scrub_btn.hide()
+
+        if not hasattr(self, '_scrub_accept_btn'):
+            self._scrub_accept_btn = QPushButton("✓ Accept")
+            self._scrub_accept_btn.setObjectName("AethericHistoryActionButton")
+            self._scrub_accept_btn.setProperty("action", "accept")
+            self._scrub_accept_btn.setFixedHeight(26)
+            p = current_palette()
+            self._scrub_accept_btn.setStyleSheet(aetheric_history_action_button_css(p))
+            self._scrub_accept_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._scrub_accept_btn.clicked.connect(self._on_scrub_accept)
+
+            self._scrub_reject_btn = QPushButton("✗ Reject")
+            self._scrub_reject_btn.setObjectName("AethericHistoryActionButton")
+            self._scrub_reject_btn.setProperty("action", "reject")
+            self._scrub_reject_btn.setFixedHeight(26)
+            self._scrub_reject_btn.setStyleSheet(aetheric_history_action_button_css(p))
+            self._scrub_reject_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._scrub_reject_btn.clicked.connect(self._on_scrub_reject)
+
+            header_layout = self._history_detail_header.layout()
+            delete_idx = header_layout.indexOf(self._delete_btn)
+            header_layout.insertWidget(delete_idx, self._scrub_accept_btn)
+            header_layout.insertWidget(delete_idx + 1, self._scrub_reject_btn)
+        else:
+            self._scrub_accept_btn.show()
+            self._scrub_reject_btn.show()
+
+    def _hide_scrub_accept_reject(self) -> None:
+        """Hide Accept/Reject buttons and show the scrub button again."""
+        if hasattr(self, '_scrub_accept_btn'):
+            self._scrub_accept_btn.hide()
+        if hasattr(self, '_scrub_reject_btn'):
+            self._scrub_reject_btn.hide()
+        self._scrub_btn.show()
+        self._is_comparison_mode = False
+
+    def _on_scrub_accept(self) -> None:
+        """Accept the scrub result — promote sidecar to canonical transcript."""
+        if self._current_history_md_path is None or self._scrub_model_size is None:
+            return
+
+        try:
+            from meetandread.transcription.scrub import ScrubRunner
+            ScrubRunner.accept_scrub(
+                self._current_history_md_path, self._scrub_model_size,
+            )
+            logger.info(
+                "Accepted scrub: %s model %s",
+                self._current_history_md_path, self._scrub_model_size,
+            )
+        except FileNotFoundError:
+            parent = self.parent() if self.parent() else self
+            QMessageBox.warning(
+                parent, "Accept Failed",
+                "Sidecar file not found. It may have been deleted.",
+            )
+            self._hide_scrub_accept_reject()
+            return
+        except Exception as exc:
+            parent = self.parent() if self.parent() else self
+            QMessageBox.warning(
+                parent, "Accept Failed", f"Could not accept scrub result:\n\n{exc}",
+            )
+            self._hide_scrub_accept_reject()
+            return
+
+        self._hide_scrub_accept_reject()
+        self._refresh_after_scrub()
+
+    def _on_scrub_reject(self) -> None:
+        """Reject the scrub result — delete the sidecar file."""
+        if self._current_history_md_path is None or self._scrub_model_size is None:
+            return
+
+        try:
+            from meetandread.transcription.scrub import ScrubRunner
+            ScrubRunner.reject_scrub(
+                self._current_history_md_path, self._scrub_model_size,
+            )
+            logger.info(
+                "Rejected scrub: %s model %s",
+                self._current_history_md_path, self._scrub_model_size,
+            )
+        except Exception as exc:
+            logger.warning("Error rejecting scrub: %s", exc)
+
+        self._hide_scrub_accept_reject()
+        self._refresh_after_scrub()
+
+    def _refresh_after_scrub(self) -> None:
+        """Refresh the history list and viewer after accept/reject."""
+        md_path = self._current_history_md_path
+
+        self._refresh_history()
+
+        if md_path is not None:
+            self._reselect_history_item(md_path)
+
+        if md_path is not None and md_path.exists():
+            html = self._render_history_transcript(md_path)
+            if html is not None:
+                self._history_viewer.setHtml(html)
+            else:
+                try:
+                    content = md_path.read_text(encoding="utf-8")
+                except OSError:
+                    content = ""
+                footer_marker = "\n---\n\n<!-- METADATA:"
+                marker_idx = content.find(footer_marker)
+                if marker_idx != -1:
+                    content = content[:marker_idx]
+                self._history_viewer.setMarkdown(content)
+        else:
+            self._history_viewer.clear()
+            self._history_viewer.setPlaceholderText(
+                "Select a recording to view its transcript",
+            )
 
     def closeEvent(self, event):
         """Handle close event."""

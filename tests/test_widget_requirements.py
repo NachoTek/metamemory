@@ -59,6 +59,8 @@ def widget(qapp):
     w._floating_transcript_panel.isVisible.return_value = False
     w._floating_settings_panel = MagicMock()
     w._floating_settings_panel.isVisible.return_value = False
+    w._cc_overlay = MagicMock()
+    w._cc_overlay.isVisible.return_value = False
     yield w
     w.close()
 
@@ -194,6 +196,58 @@ class TestWIDGET16:
         widget.mic_lobe.update()
 
 
+class TestWIDGET17:
+    """Transcript lobe for toggling the transcript panel."""
+
+    def test_transcript_lobe_exists(self, widget):
+        from meetandread.widgets.main_widget import TranscriptLobeItem
+        assert isinstance(widget.transcript_lobe, TranscriptLobeItem)
+
+    def test_transcript_lobe_in_scene(self, widget):
+        from meetandread.widgets.main_widget import TranscriptLobeItem
+        lobes = [item for item in widget._scene.items() if isinstance(item, TranscriptLobeItem)]
+        assert len(lobes) == 1
+
+    def test_transcript_lobe_position_differs_from_others(self, widget):
+        positions = {
+            'mic': widget.mic_lobe.pos(),
+            'system': widget.system_lobe.pos(),
+            'transcript': widget.transcript_lobe.pos(),
+            'settings': widget.settings_lobe.pos(),
+        }
+        # All four lobes should have distinct positions
+        pos_list = list(positions.values())
+        for i in range(len(pos_list)):
+            for j in range(i + 1, len(pos_list)):
+                assert pos_list[i] != pos_list[j], \
+                    f"Lobe positions overlap: {list(positions.keys())[i]} == {list(positions.keys())[j]}"
+
+    def test_transcript_lobe_toggles_panel_hide(self, widget):
+<<<<<<< HEAD
+        """Clicking transcript lobe hides panel when visible."""
+        widget._floating_transcript_panel.isVisible.return_value = True
+        widget.toggle_transcript_panel()
+        widget._floating_transcript_panel.hide_panel.assert_called_once()
+
+    def test_transcript_lobe_toggles_panel_show(self, widget):
+        """Clicking transcript lobe shows panel when hidden."""
+        widget._floating_transcript_panel.isVisible.return_value = False
+        widget.toggle_transcript_panel()
+        widget._floating_transcript_panel.show_panel.assert_called_once()
+=======
+        """Clicking transcript lobe hides CC overlay when visible."""
+        widget._cc_overlay.isVisible.return_value = True
+        widget.toggle_transcript_panel()
+        widget._cc_overlay.hide_panel.assert_called_once()
+
+    def test_transcript_lobe_toggles_panel_show(self, widget):
+        """Clicking transcript lobe shows CC overlay when hidden."""
+        widget._cc_overlay.isVisible.return_value = False
+        widget.toggle_transcript_panel()
+        widget._cc_overlay.show_panel.assert_called_once()
+>>>>>>> milestone/M006-mgkqrb
+
+
 class TestWIDGET19:
     def test_recording_state_transitions(self, widget):
         widget._on_controller_state_change(ControllerState.RECORDING)
@@ -202,14 +256,14 @@ class TestWIDGET19:
 
 class TestWIDGET20:
     def test_hides_when_visible(self, widget):
-        widget._floating_transcript_panel.isVisible.return_value = True
+        widget._cc_overlay.isVisible.return_value = True
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.hide_panel.assert_called_once()
+        widget._cc_overlay.hide_panel.assert_called_once()
 
     def test_shows_when_hidden(self, widget):
-        widget._floating_transcript_panel.isVisible.return_value = False
+        widget._cc_overlay.isVisible.return_value = False
         widget.toggle_transcript_panel()
-        widget._floating_transcript_panel.show_panel.assert_called_once()
+        widget._cc_overlay.show_panel.assert_called_once()
 
 
 class TestWIDGET21:
@@ -265,11 +319,13 @@ class TestWIDGET28:
 class TestWIDGET30:
     def test_hides_when_visible(self, widget):
         widget._floating_settings_panel.isVisible.return_value = True
+        widget._settings_docked = True  # reflect the docked state
         widget._toggle_settings_panel()
         widget._floating_settings_panel.hide_panel.assert_called_once()
 
     def test_shows_when_hidden(self, widget):
         widget._floating_settings_panel.isVisible.return_value = False
+        widget._settings_docked = False  # reflect the undocked state
         widget._toggle_settings_panel()
         widget._floating_settings_panel.show_panel.assert_called_once()
 

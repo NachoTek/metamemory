@@ -189,6 +189,8 @@ class TestWidgetIntegration:
         w._floating_transcript_panel.isVisible.return_value = False
         w._floating_settings_panel = MagicMock()
         w._floating_settings_panel.isVisible.return_value = False
+        w._cc_overlay = MagicMock()
+        w._cc_overlay.isVisible.return_value = False
         yield w
         w.close()
 
@@ -255,6 +257,8 @@ class TestGlassOpacity:
         w._floating_transcript_panel.isVisible.return_value = False
         w._floating_settings_panel = MagicMock()
         w._floating_settings_panel.isVisible.return_value = False
+        w._cc_overlay = MagicMock()
+        w._cc_overlay.isVisible.return_value = False
         yield w
         w.close()
 
@@ -376,6 +380,8 @@ class TestIntegratedStateTransitions:
         w._floating_transcript_panel.isVisible.return_value = False
         w._floating_settings_panel = MagicMock()
         w._floating_settings_panel.isVisible.return_value = False
+        w._cc_overlay = MagicMock()
+        w._cc_overlay.isVisible.return_value = False
         yield w
         w.close()
 
