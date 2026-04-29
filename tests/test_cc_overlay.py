@@ -372,9 +372,16 @@ class TestWindowFlags:
         flags = cc_panel.windowFlags()
         assert flags & Qt.WindowType.Tool
 
-    def test_always_on_top(self, cc_panel):
+    def test_always_on_top_via_parent(self, cc_panel):
+        """CC overlay no longer sets WindowStaysOnTopHint itself — the parent
+        widget (MeetAndReadWidget) owns that flag and the panel inherits it."""
         flags = cc_panel.windowFlags()
-        assert flags & Qt.WindowType.WindowStaysOnTopHint
+        assert not (flags & Qt.WindowType.WindowStaysOnTopHint), (
+            "CC overlay should not set WindowStaysOnTopHint; "
+            "parent widget controls z-order"
+        )
+        assert flags & Qt.WindowType.FramelessWindowHint
+        assert flags & Qt.WindowType.Tool
 
     def test_translucent_background(self, cc_panel):
         assert cc_panel.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)

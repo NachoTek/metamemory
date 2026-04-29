@@ -2020,10 +2020,10 @@ class CCOverlayPanel(QWidget):
         self._fade_delay_timer.setSingleShot(True)
         self._fade_delay_timer.timeout.connect(self._on_delay_elapsed)
 
-        # --- Window flags: frameless, tool (no taskbar), always on top ---
+        # --- Window flags: frameless, tool (no taskbar) ---
+        # No WindowStaysOnTopHint — the parent widget owns z-order and stays on top.
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
 
@@ -2507,11 +2507,11 @@ class FloatingSettingsPanel(QWidget):
         # -- Track whether Performance page is active --
         self._perf_tab_active = False
 
-        # Window settings
+        # Window settings — no WindowStaysOnTopHint so the parent widget
+        # (which has that flag) controls z-order and stays on top of us.
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.Tool  # Don't show in taskbar
         )
 
         # Solid background — translucency removed for readability
