@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QSizePolicy, QSizeGrip, QStackedWidget,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QUrl, QPoint
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QPainter, QPen
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QPainter, QPen, QMouseEvent
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +38,7 @@ from meetandread.widgets.theme import (
     aetheric_history_list_css, aetheric_history_viewer_css,
     aetheric_history_splitter_css, aetheric_history_header_css,
     aetheric_history_action_button_css,
+    aetheric_cc_overlay_css,
     AETHERIC_RED, AETHERIC_NAV_INACTIVE_TEXT,
 )
 
@@ -1957,6 +1958,249 @@ class BudgetProgressBar(QProgressBar):
         x = int(self.width() * self._budget_percent / 100.0)
         painter.drawLine(x, 0, x, self.height())
         painter.end()
+
+
+# ---------------------------------------------------------------------------
+# CCOverlayPanel — compact closed-caption overlay for live transcript
+# ---------------------------------------------------------------------------
+
+class CCOverlayPanel(QWidget):
+    """Compact draggable/resizable CC-style overlay for live transcript text.
+
+    Frameless, translucent, always-on-top window that displays real-time
+    transcription text during recording.  Designed to be a lightweight
+    surface with no history, tabs, or status chrome.
+
+    Shell methods:
+        show_panel()         — show with fade-in
+        hide_panel(immediate) — hide, optionally deferred via fade
+        toggle_panel()       — toggle visibility
+        dock_to_widget(w)    — first placement next to a widget
+        clear()              — reset text and content state
+
+    Observability:
+        objectName()       → "AethericCCOverlay"
+        text_edit.objectName() → "AethericCCText"
+        isVisible()        → panel visibility state
+        _has_content       → whether any transcript text has been received
+    """
+
+    # Fade constants (matching FloatingTranscriptPanel)
+    _FADE_DURATION_MS = 150
+    _FADE_STEP_MS = 10
+    _FADE_STEPS = _FADE_DURATION_MS // _FADE_STEP_MS  # 15
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        self.setObjectName("AethericCCOverlay")
+
+        # Track content state
+        self._has_content: bool = False
+
+        # --- Window flags: frameless, tool (no taskbar), always on top ---
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+
+        # Translucent background for glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+
+        # --- Compact size constraints ---
+        self.setMinimumSize(300, 120)
+        self.setMaximumSize(900, 400)
+        self.resize(480, 200)
+
+        # --- Layout: single text edit fills the panel ---
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setObjectName("AethericCCText")
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
+        self.text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self.text_edit)
+
+        # --- Resize grip: direct child of panel (MEM083 pattern) ---
+        self._resize_grip = QSizeGrip(self)
+        self._resize_grip.setFixedSize(16, 16)
+        self._resize_grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self._resize_grip.show()
+
+        # --- Drag state ---
+        self._dragging: bool = False
+        self._drag_pos: Optional[QPoint] = None
+
+        # Track whether panel has been positioned at least once
+        self._has_been_docked: bool = False
+
+        # Apply initial theme
+        self._apply_theme()
+
+        logger.debug("CCOverlayPanel created (parent=%s)", type(parent).__name__ if parent else "None")
+
+    # ------------------------------------------------------------------
+    # Theme
+    # ------------------------------------------------------------------
+
+    def _apply_theme(self) -> None:
+        """Apply Aetheric CC overlay styling."""
+        p = current_palette()
+        self.setStyleSheet(aetheric_cc_overlay_css(p))
+        self._resize_grip.setStyleSheet(resize_grip_css(p))
+
+    # ------------------------------------------------------------------
+    # Resize — reposition grip (MEM083 pattern)
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event) -> None:
+        """Reposition resize grip to bottom-right corner."""
+        if hasattr(self, "_resize_grip"):
+            self._resize_grip.move(
+                self.width() - self._resize_grip.width(),
+                self.height() - self._resize_grip.height(),
+            )
+        super().resizeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Drag handlers
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Start drag on left-button press."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Move panel with mouse during drag."""
+        if self._dragging and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """End drag on left-button release."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._drag_pos = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    # ------------------------------------------------------------------
+    # Shell methods
+    # ------------------------------------------------------------------
+
+    def show_panel(self) -> None:
+        """Show the panel with a fade-in animation."""
+        self._start_fade_in()
+
+    def hide_panel(self, immediate: bool = False) -> None:
+        """Hide the panel, optionally immediately without fade.
+
+        Args:
+            immediate: If True, hide instantly. If False, fade out.
+        """
+        if immediate:
+            self.hide()
+            self.setWindowOpacity(1.0)
+        else:
+            self._start_fade_out()
+
+    def toggle_panel(self) -> None:
+        """Toggle panel visibility."""
+        if self.isVisible():
+            self.hide_panel()
+        else:
+            self.show_panel()
+
+    def dock_to_widget(self, widget: QWidget, position: str = "right") -> None:
+        """Position panel next to a widget for first placement.
+
+        Args:
+            widget: The widget to dock alongside.
+            position: "left", "right", "top", or "bottom".
+        """
+        if widget is None:
+            return
+        widget_pos = widget.mapToGlobal(widget.rect().topLeft())
+        widget_rect = widget.geometry()
+
+        if position == "left":
+            x = widget_pos.x() - self.width() - 10
+            y = widget_pos.y()
+        elif position == "right":
+            x = widget_pos.x() + widget_rect.width() + 10
+            y = widget_pos.y()
+        elif position == "top":
+            x = widget_pos.x()
+            y = widget_pos.y() - self.height() - 10
+        else:  # bottom
+            x = widget_pos.x()
+            y = widget_pos.y() + widget_rect.height() + 10
+
+        self.move(x, y)
+        self._has_been_docked = True
+
+    def clear(self) -> None:
+        """Reset overlay text and content state."""
+        self.text_edit.clear()
+        self._has_content = False
+
+    # ------------------------------------------------------------------
+    # Fade helpers (matching FloatingTranscriptPanel pattern)
+    # ------------------------------------------------------------------
+
+    def _start_fade_in(self) -> None:
+        """Animate opacity 0 → 1, then show."""
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+        self._apply_theme()
+        self.setWindowOpacity(0.0)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._fade_step = 0
+        self._fade_direction = 1
+        self._fade_timer = QTimer(self)
+        self._fade_timer.timeout.connect(self._on_fade_tick)
+        self._fade_timer.start(self._FADE_STEP_MS)
+
+    def _start_fade_out(self) -> None:
+        """Animate opacity 1 → 0, then hide."""
+        if hasattr(self, "_fade_timer") and self._fade_timer.isActive():
+            self._fade_timer.stop()
+        self.setWindowOpacity(1.0)
+        self._fade_step = 0
+        self._fade_direction = -1
+        self._fade_timer = QTimer(self)
+        self._fade_timer.timeout.connect(self._on_fade_tick)
+        self._fade_timer.start(self._FADE_STEP_MS)
+
+    def _on_fade_tick(self) -> None:
+        """Process one step of a fade animation."""
+        self._fade_step += 1
+        progress = self._fade_step / self._FADE_STEPS
+        if self._fade_direction == 1:
+            self.setWindowOpacity(min(progress, 1.0))
+        else:
+            self.setWindowOpacity(max(1.0 - progress, 0.0))
+        if self._fade_step >= self._FADE_STEPS:
+            self._fade_timer.stop()
+            if self._fade_direction == -1:
+                self.hide()
+                self.setWindowOpacity(1.0)
 
 
 class FloatingSettingsPanel(QWidget):
