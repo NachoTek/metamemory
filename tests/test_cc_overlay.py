@@ -7,7 +7,7 @@ Covers:
 - Drag movement: mouse-drag repositions the panel
 - Safe no-parent construction: works without parent, no crash
 - Shell methods: show_panel, hide_panel (immediate + deferred), toggle_panel,
-  dock_to_widget, clear
+  clear
 - Empty state: panel starts with _has_content == False
 - Object names: panel and text_edit have correct objectNames
 - Live transcript: update_segment, phrase tracking, speaker labels,
@@ -263,18 +263,6 @@ class TestSafeNoParentConstruction:
         assert panel.isVisible()
         panel.close()
 
-    def test_dock_to_widget_without_parent(self, qapp):
-        """dock_to_widget with a valid widget must work even without initial parent."""
-        panel = CCOverlayPanel(parent=None)
-        dummy = QWidget()
-        dummy.show()
-        qapp.processEvents()
-        # Should not crash
-        panel.dock_to_widget(dummy)
-        qapp.processEvents()
-        panel.close()
-        dummy.close()
-
 
 # ---------------------------------------------------------------------------
 # 6. Shell methods — show, hide, toggle, clear
@@ -329,15 +317,6 @@ class TestShellMethods:
         assert te.toPlainText() == "", "clear() should empty the text edit"
         assert not cc_panel._has_content, "clear() should reset _has_content"
 
-    def test_dock_to_widget_positions_panel(self, cc_panel_with_parent, qapp):
-        panel, parent = cc_panel_with_parent
-        panel.dock_to_widget(parent)
-        qapp.processEvents()
-        # Panel should be positioned relative to the parent (not at the same location)
-        parent_pos = parent.mapToGlobal(parent.rect().topLeft())
-        # The panel must have been repositioned away from its initial spot
-        # (dock_to_widget places it adjacent to the parent)
-        assert panel._has_been_docked, "dock_to_widget should set _has_been_docked"
 
 
 # ---------------------------------------------------------------------------
@@ -984,15 +963,14 @@ class TestCCOverlayWidgetLifecycle:
         assert not w._cc_overlay.isVisible()
 
     def test_widget_move_does_not_redock_cc_overlay(self, widget_with_cc, qapp):
-        """Moving the widget does not reposition an already-docked CC overlay."""
+        """Moving the widget does not reposition a visible CC overlay."""
         from unittest.mock import MagicMock
         w = widget_with_cc
 
-        # Show CC overlay and mark as docked
+        # Show CC overlay
         w._cc_overlay.show_panel()
         for _ in range(20):
             qapp.processEvents()
-        w._cc_overlay._has_been_docked = True
 
         # Record overlay position
         original_pos = w._cc_overlay.pos()
@@ -1002,7 +980,7 @@ class TestCCOverlayWidgetLifecycle:
         for _ in range(5):
             qapp.processEvents()
 
-        # CC overlay should NOT have moved
+        # CC overlay should NOT have moved (free-floating, no dock sync)
         assert w._cc_overlay.pos() == original_pos
 
     def test_segment_forwarded_to_cc_overlay(self, widget_with_cc, qapp):

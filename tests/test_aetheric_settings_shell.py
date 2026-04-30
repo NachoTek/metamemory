@@ -42,7 +42,6 @@ from meetandread.widgets.theme import (
     LIGHT_PALETTE,
     aetheric_cc_overlay_css,
     aetheric_combo_box_css,
-    aetheric_dock_bay_css,
     aetheric_history_action_button_css,
     aetheric_history_header_css,
     aetheric_history_list_css,
@@ -207,36 +206,6 @@ class TestAethericNavButtonCss:
 
     def test_pill_border_radius(self):
         css = aetheric_nav_button_css(DARK_PALETTE)
-        assert "border-radius: 8px" in css
-
-
-# ---------------------------------------------------------------------------
-# aetheric_dock_bay_css
-# ---------------------------------------------------------------------------
-
-class TestAethericDockBayCss:
-    """Dock bay container QSS contract."""
-
-    @pytest.mark.parametrize("palette", [DARK_PALETTE, LIGHT_PALETTE])
-    def test_does_not_crash(self, palette):
-        css = aetheric_dock_bay_css(palette)
-        assert isinstance(css, str)
-        assert len(css) > 0
-
-    def test_uses_object_name_selector(self):
-        css = aetheric_dock_bay_css(DARK_PALETTE)
-        assert "QWidget#AethericDockBay" in css
-
-    def test_transparent_background(self):
-        css = aetheric_dock_bay_css(DARK_PALETTE)
-        assert "background-color: transparent" in css
-
-    def test_light_border(self):
-        css = aetheric_dock_bay_css(DARK_PALETTE)
-        assert AETHERIC_BORDER_LIGHT in css
-
-    def test_8px_radius(self):
-        css = aetheric_dock_bay_css(DARK_PALETTE)
         assert "border-radius: 8px" in css
 
 
@@ -636,7 +605,6 @@ class TestAethericScopedSelectors:
             (aetheric_settings_shell_css, "QWidget#AethericSettingsShell"),
             (aetheric_sidebar_css, "QWidget#AethericSidebar"),
             (aetheric_nav_button_css, "QPushButton#AethericNavButton"),
-            (aetheric_dock_bay_css, "QWidget#AethericDockBay"),
             (aetheric_placeholder_css, "QWidget#AethericPlaceholderRow"),
             (aetheric_combo_box_css, "QComboBox#AethericComboBox"),
             (aetheric_history_list_css, "QListWidget#AethericHistoryList"),
@@ -692,9 +660,10 @@ class TestAethericSidebarStructure:
         assert stack is not None
         assert stack.count() == 3, f"Expected 3 pages, got {stack.count()}"
 
-    def test_dock_bay_has_object_name(self, settings_panel):
+    def test_no_dock_bay(self, settings_panel):
+        """Dock bay widget was removed in S05 (free-floating panels)."""
         dock = settings_panel.findChild(QWidget, "AethericDockBay")
-        assert dock is not None, "Dock bay with objectName 'AethericDockBay' not found"
+        assert dock is None, "Dock bay should not exist in free-floating panel mode"
 
     def test_no_title_label(self, settings_panel):
         """No _title_label attribute should exist (removed in Aetheric redesign)."""
