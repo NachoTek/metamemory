@@ -755,7 +755,6 @@ def splitter_css(p: ThemePalette) -> str:
 # Design tokens for the Aetheric Glass design system.
 # See docs/AETHERIC-GLASS-DESIGN-SYSTEM.md for full reference.
 AETHERIC_GLASS_BG = "rgba(30, 29, 30, 200)"
-AETHERIC_SETTINGS_BG = "rgb(30, 29, 30)"  # solid — no translucency for the settings shell
 AETHERIC_GLASS_ROW_BG = "rgba(53, 52, 54, 0.2)"
 AETHERIC_SIDEBAR_WIDTH = "256px"
 AETHERIC_RADIUS = "12px"
@@ -788,11 +787,10 @@ AETHERIC_CC_FONT_SIZE = "14px"
 
 
 def aetheric_settings_shell_css(p: ThemePalette) -> str:
-    """Aetheric Glass settings shell — solid dark panel base.
+    """Aetheric Glass settings shell — translucent dark panel base.
 
     The shell is a frameless top-level window with directional borders
     (light on top-left, dark on bottom-right) and a 12px corner radius.
-    Uses a solid background (no translucency) for readability.
 
     Object name selector: ``AethericSettingsShell``
 
@@ -804,7 +802,7 @@ def aetheric_settings_shell_css(p: ThemePalette) -> str:
     """
     return f"""
         QWidget#AethericSettingsShell {{
-            background-color: {AETHERIC_SETTINGS_BG};
+            background-color: {AETHERIC_GLASS_BG};
             border: 1px solid {AETHERIC_BORDER_LIGHT};
             border-top: 1px solid {AETHERIC_BORDER_LIGHT};
             border-left: 1px solid {AETHERIC_BORDER_LIGHT};
@@ -818,7 +816,7 @@ def aetheric_settings_shell_css(p: ThemePalette) -> str:
 def aetheric_sidebar_css(p: ThemePalette) -> str:
     """Aetheric Glass sidebar — dark vertical navigation rail.
 
-    Fixed 256px width with a solid dark background.
+    Fixed 256px width with the translucent glass background.
 
     Object name selector: ``AethericSidebar``
 
@@ -830,7 +828,7 @@ def aetheric_sidebar_css(p: ThemePalette) -> str:
     """
     return f"""
         QWidget#AethericSidebar {{
-            background-color: {AETHERIC_SETTINGS_BG};
+            background-color: {AETHERIC_GLASS_BG};
             border-right: 1px solid {AETHERIC_BORDER_DARK};
             border-top-left-radius: {AETHERIC_RADIUS};
             border-bottom-left-radius: {AETHERIC_RADIUS};
@@ -873,29 +871,6 @@ def aetheric_nav_button_css(p: ThemePalette) -> str:
             color: {AETHERIC_RED};
             border: 1px solid {AETHERIC_NAV_ACTIVE_GLOW};
             font-weight: bold;
-        }}
-    """
-
-
-def aetheric_dock_bay_css(p: ThemePalette) -> str:
-    """Aetheric Glass dock bay — container for docking indicators.
-
-    The dock bay shows alignment/positioning state between the settings
-    shell and the parent widget.
-
-    Object name selector: ``AethericDockBay``
-
-    Args:
-        p: Active theme palette.
-
-    Returns:
-        QSS string for the dock bay container.
-    """
-    return f"""
-        QWidget#AethericDockBay {{
-            background-color: transparent;
-            border: 1px solid {AETHERIC_BORDER_LIGHT};
-            border-radius: 8px;
         }}
     """
 
@@ -1007,7 +982,7 @@ def aetheric_combo_box_css(p: ThemePalette) -> str:
             border-top: 6px solid {AETHERIC_RED};
         }}
         QComboBox#AethericComboBox QAbstractItemView {{
-            background-color: {AETHERIC_SETTINGS_BG};
+            background-color: {AETHERIC_GLASS_BG};
             color: {AETHERIC_NAV_INACTIVE_TEXT};
             border: 1px solid {AETHERIC_BORDER_DARK};
             border-radius: 8px;

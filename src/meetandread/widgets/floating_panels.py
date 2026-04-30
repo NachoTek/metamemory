@@ -1,8 +1,8 @@
 """
-Floating transcript panel - separate window that docks to the main widget.
+Floating panels - separate windows for transcript, CC overlay, and settings.
 
-This solves the clipping issue by making the panel a separate QWidget
-that floats outside the main widget bounds.
+These panels are free-floating independent windows that can be positioned
+anywhere on screen. They are not clipped by the main widget bounds.
 """
 
 from PyQt6.QtWidgets import (
@@ -34,12 +34,12 @@ from meetandread.widgets.theme import (
     badge_css, resize_grip_css, legend_overlay_css, info_label_css,
     progress_bar_css, separator_css, combo_box_css,
     aetheric_settings_shell_css, aetheric_sidebar_css, aetheric_nav_button_css,
-    aetheric_dock_bay_css, aetheric_placeholder_css, aetheric_combo_box_css,
+    aetheric_placeholder_css, aetheric_combo_box_css,
     aetheric_history_list_css, aetheric_history_viewer_css,
     aetheric_history_splitter_css, aetheric_history_header_css,
     aetheric_history_action_button_css,
     aetheric_cc_overlay_css,
-    AETHERIC_RED, AETHERIC_NAV_INACTIVE_TEXT,
+    AETHERIC_RED,
 )
 
 import logging
@@ -93,7 +93,6 @@ class FloatingTranscriptPanel(QWidget):
     
     Features:
     - Separate window (not clipped by main widget bounds)
-    - Docks to main widget position
     - Shows transcript with confidence-based coloring
     - Auto-scrolls to show latest text
     - Can be manually toggled
@@ -112,9 +111,6 @@ class FloatingTranscriptPanel(QWidget):
         self._speaker_names: Dict[str, str] = {}
         # Raw speaker labels that have been pinned by the user
         self._pinned_speakers: set = set()
-        
-        # Track whether panel has been positioned at least once
-        self._has_been_docked = False
         
         # Window settings (FloatingTranscriptPanel)
         self.setWindowFlags(
@@ -462,34 +458,6 @@ class FloatingTranscriptPanel(QWidget):
                 self.height() - self._resize_grip.height(),
             )
         super().resizeEvent(event)
-    
-    def dock_to_widget(self, widget, position: str = "right") -> None:
-        """Position panel next to a widget.
-        
-        Args:
-            widget: The main widget to dock to
-            position: "left", "right", "top", "bottom"
-        """
-        # Get widget position in screen coordinates
-        widget_pos = widget.mapToGlobal(widget.rect().topLeft())
-        widget_rect = widget.geometry()
-        
-        # Calculate panel position
-        if position == "left":
-            x = widget_pos.x() - self.width() - 10
-            y = widget_pos.y()
-        elif position == "right":
-            x = widget_pos.x() + widget_rect.width() + 10
-            y = widget_pos.y()
-        elif position == "top":
-            x = widget_pos.x()
-            y = widget_pos.y() - self.height() - 10
-        else:  # bottom
-            x = widget_pos.x()
-            y = widget_pos.y() + widget_rect.height() + 10
-        
-        self.move(x, y)
-        self._has_been_docked = True
     
     def show_panel(self) -> None:
         """Show the panel with a 150ms fade-in and start auto-scroll."""
@@ -1975,7 +1943,6 @@ class CCOverlayPanel(QWidget):
         show_panel()         — show with fade-in
         hide_panel(immediate) — hide, optionally deferred via fade
         toggle_panel()       — toggle visibility
-        dock_to_widget(w)    — first placement next to a widget
         clear()              — reset text and content state
 
     Observability:
@@ -2020,10 +1987,10 @@ class CCOverlayPanel(QWidget):
         self._fade_delay_timer.setSingleShot(True)
         self._fade_delay_timer.timeout.connect(self._on_delay_elapsed)
 
-        # --- Window flags: frameless, tool (no taskbar) ---
-        # No WindowStaysOnTopHint — the parent widget owns z-order and stays on top.
+        # --- Window flags: frameless, tool (no taskbar), always on top ---
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
 
@@ -2044,7 +2011,6 @@ class CCOverlayPanel(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setObjectName("AethericCCText")
         self.text_edit.setReadOnly(True)
-        self.text_edit.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
         self.text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -2059,9 +2025,6 @@ class CCOverlayPanel(QWidget):
         # --- Drag state ---
         self._dragging: bool = False
         self._drag_pos: Optional[QPoint] = None
-
-        # Track whether panel has been positioned at least once
-        self._has_been_docked: bool = False
 
         # Apply initial theme
         self._apply_theme()
@@ -2192,34 +2155,6 @@ class CCOverlayPanel(QWidget):
             self._has_content,
         )
         self._start_fade_out()
-
-    def dock_to_widget(self, widget: QWidget, position: str = "right") -> None:
-        """Position panel next to a widget for first placement.
-
-        Args:
-            widget: The widget to dock alongside.
-            position: "left", "right", "top", or "bottom".
-        """
-        if widget is None:
-            return
-        widget_pos = widget.mapToGlobal(widget.rect().topLeft())
-        widget_rect = widget.geometry()
-
-        if position == "left":
-            x = widget_pos.x() - self.width() - 10
-            y = widget_pos.y()
-        elif position == "right":
-            x = widget_pos.x() + widget_rect.width() + 10
-            y = widget_pos.y()
-        elif position == "top":
-            x = widget_pos.x()
-            y = widget_pos.y() - self.height() - 10
-        else:  # bottom
-            x = widget_pos.x()
-            y = widget_pos.y() + widget_rect.height() + 10
-
-        self.move(x, y)
-        self._has_been_docked = True
 
     def clear(self) -> None:
         """Reset overlay text, phrases, and content state."""
@@ -2418,6 +2353,8 @@ class CCOverlayPanel(QWidget):
         self._apply_theme()
         self.setWindowOpacity(0.0)
         self.show()
+        self.raise_()
+        self.activateWindow()
         self._fade_step = 0
         self._fade_direction = 1
         self._fade_timer = QTimer(self)
@@ -2481,11 +2418,6 @@ class FloatingSettingsPanel(QWidget):
         self._tray_manager = tray_manager
         self._main_widget = main_widget
 
-        # -- Docked-pair state (T03: recursion-guarded movement sync) --
-        self._docked_widget: Optional[QWidget] = None  # the MeetAndReadWidget
-        self._dock_offset: QPoint = QPoint()  # panel.pos() - widget.pos() at dock time
-        self._syncing_docked_pair: bool = False  # guard flag to prevent recursion
-
         # -- Performance backend instances (wired in T03) --
         self._resource_monitor = ResourceMonitor(
             poll_interval_ms=2000,
@@ -2507,15 +2439,19 @@ class FloatingSettingsPanel(QWidget):
         # -- Track whether Performance page is active --
         self._perf_tab_active = False
 
-        # Window settings — no WindowStaysOnTopHint so the parent widget
-        # (which has that flag) controls z-order and stays on top of us.
+        # Window settings
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.Tool  # Don't show in taskbar
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
         )
 
-        # Solid background — translucency removed for readability
-        # (WA_TranslucentBackground makes the panel unusable on light desktops)
+        # Glass pair: translucent background matching the widget's glass aesthetic
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+
+        # Glass opacity — matches transcript panel
+        self.setWindowOpacity(0.87)
 
         # Size — wider to accommodate sidebar + content stack
         self.setMinimumSize(420, 400)
@@ -2573,17 +2509,6 @@ class FloatingSettingsPanel(QWidget):
         self._nav_buttons.append(self._nav_history_btn)
 
         sidebar_layout.addStretch()
-
-        # Dock bay placeholder — T03 will align the real widget over/into this
-        self._dock_bay = QWidget()
-        self._dock_bay.setObjectName("AethericDockBay")
-        self._dock_bay.setFixedHeight(48)
-        dock_bay_layout = QVBoxLayout(self._dock_bay)
-        dock_bay_layout.setContentsMargins(4, 4, 4, 4)
-        self._dock_bay_label = QLabel("Widget Dock")
-        self._dock_bay_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dock_bay_layout.addWidget(self._dock_bay_label)
-        sidebar_layout.addWidget(self._dock_bay)
 
         root_layout.addWidget(self._sidebar)
 
@@ -2915,12 +2840,6 @@ class FloatingSettingsPanel(QWidget):
         for btn in self._nav_buttons:
             btn.setStyleSheet(nav_css)
 
-        # Dock bay
-        self._dock_bay.setStyleSheet(aetheric_dock_bay_css(p))
-        self._dock_bay_label.setStyleSheet(
-            f"QLabel {{ color: {AETHERIC_NAV_INACTIVE_TEXT}; font-size: 10px; }}"
-        )
-
         # Content stack — transparent so per-page styles show through
         self._content_stack.setStyleSheet(
             "QStackedWidget { background-color: transparent; border: none; }"
@@ -3014,20 +2933,9 @@ class FloatingSettingsPanel(QWidget):
             self._metrics_timer.start()
     
     def hide_panel(self):
-        """Hide the panel with a 150ms fade-out and stop monitoring.
-
-        Detaches the dock relation so panel hide doesn't try to sync moves.
-        Notifies the main widget to clear its docked state.
-        """
-        self.detach_dock()
+        """Hide the panel with a 150ms fade-out and stop monitoring."""
         self._stop_resource_monitor()
         self._metrics_timer.stop()
-        # Notify the main widget to clear its docked state
-        if self._main_widget is not None:
-            try:
-                self._main_widget._settings_docked = False
-            except Exception:
-                pass
         self._start_fade_out()
 
     # ------------------------------------------------------------------
@@ -3046,6 +2954,8 @@ class FloatingSettingsPanel(QWidget):
         self._apply_theme()
         self.setWindowOpacity(0.0)
         self.show()
+        self.raise_()
+        self.activateWindow()
         self._fade_step = 0
         self._fade_direction = 1  # 1 = fading in
         self._fade_timer = QTimer(self)
@@ -3076,134 +2986,6 @@ class FloatingSettingsPanel(QWidget):
             if self._fade_direction == -1:
                 self.hide()
                 self.setWindowOpacity(1.0)  # Reset for next show
-    
-    def dock_to_widget(self, widget: QWidget, position: str = "left") -> None:
-        """
-        Position panel next to a widget, aligning the widget over the
-        sidebar's dock bay for the Aetheric Glass settings shell.
-
-        Uses the actual dock bay widget geometry to compute alignment so
-        the widget center sits over the visible "Widget Dock" area.
-
-        Args:
-            widget: The main widget to dock to
-            position: "left", "right", "top", "bottom" (unused for settings)
-        """
-        if not widget or not widget.isVisible():
-            return
-
-        # Get widget position in screen coordinates
-        widget_pos = widget.mapToGlobal(widget.rect().topLeft())
-        widget_rect = widget.geometry()
-        widget_center_x = widget_pos.x() + widget_rect.width() // 2
-        widget_center_y = widget_pos.y() + widget_rect.height() // 2
-
-        # Use the actual dock bay widget geometry if available
-        if hasattr(self, '_dock_bay') and self._dock_bay is not None:
-            # Map dock bay center to global coordinates
-            dock_bay_rect = self._dock_bay.rect()
-            dock_bay_global = self._dock_bay.mapToGlobal(dock_bay_rect.center())
-            dock_bay_center_x = dock_bay_global.x()
-            dock_bay_center_y = dock_bay_global.y()
-        else:
-            # Fallback: estimate from panel geometry
-            sidebar_w = 160
-            dock_bay_center_x = panel_w - sidebar_w // 2
-            dock_bay_center_y = panel_h - 24
-
-        # Position panel so widget center aligns with dock bay center
-        # Since panel hasn't been positioned yet, we need to estimate
-        # the dock bay position relative to the panel's top-left
-        if hasattr(self, '_dock_bay') and self._dock_bay is not None:
-            # The dock bay is a child widget — get its position relative to panel
-            db_pos = self._dock_bay.mapTo(self, self._dock_bay.rect().center())
-            x = widget_center_x - db_pos.x()
-            y = widget_center_y - db_pos.y()
-        else:
-            x = widget_center_x - dock_bay_center_x
-            y = widget_center_y - dock_bay_center_y
-
-        self.move(x, y)
-
-        # Record the offset so subsequent moves preserve the alignment
-        widget_screen_pos = widget.pos()
-        self._dock_offset = QPoint(x - widget_screen_pos.x(), y - widget_screen_pos.y())
-
-    # ------------------------------------------------------------------
-    # Docked-pair helpers (T03)
-    # ------------------------------------------------------------------
-
-    def attach_dock(self, widget: QWidget) -> None:
-        """Attach to a widget for docked-pair movement.
-
-        Records the positional offset and logs the attach event.
-        Safe to call multiple times — no-ops if already attached.
-
-        Args:
-            widget: The MeetAndReadWidget to dock with.
-        """
-        if widget is None:
-            return
-        self._docked_widget = widget
-        # Record offset: panel.pos() - widget.pos()
-        self._dock_offset = self.pos() - widget.pos()
-        logger.debug(
-            "Settings dock attached: offset=(%d, %d)",
-            self._dock_offset.x(), self._dock_offset.y(),
-        )
-
-    def detach_dock(self) -> None:
-        """Detach from the docked widget.
-
-        Clears the dock relation. The widget stays at its current position.
-        """
-        if self._docked_widget is not None:
-            logger.debug("Settings dock detached")
-        self._docked_widget = None
-        self._dock_offset = QPoint()
-
-    @property
-    def is_docked(self) -> bool:
-        """True when the panel is actively docked to a widget."""
-        return self._docked_widget is not None and self.isVisible()
-
-    def moveEvent(self, event) -> None:
-        """Sync docked widget position when the panel is moved by the user.
-
-        Applies the stored dock offset to move the widget by the same
-        delta.  The ``_syncing_docked_pair`` guard prevents recursion
-        when the widget's own moveEvent triggers a panel reposition.
-
-        Only syncs when the panel is visible and docked.
-        """
-        super().moveEvent(event)
-
-        if self._syncing_docked_pair:
-            return
-        if not self.is_docked or self._docked_widget is None:
-            return
-        if not self._docked_widget.isVisible():
-            return
-
-        # Calculate new position for widget using stored offset
-        new_widget_pos = self.pos() - self._dock_offset
-
-        # Skip if the widget is already at the target position (no-op guard)
-        current_widget_pos = self._docked_widget.pos()
-        if (new_widget_pos.x() == current_widget_pos.x() and
-                new_widget_pos.y() == current_widget_pos.y()):
-            return
-
-        # Apply the delta under the guard
-        self._syncing_docked_pair = True
-        try:
-            self._docked_widget.move(new_widget_pos)
-            logger.debug(
-                "Panel→Widget sync: widget moved to (%d, %d)",
-                new_widget_pos.x(), new_widget_pos.y(),
-            )
-        finally:
-            self._syncing_docked_pair = False
     
     # ------------------------------------------------------------------
     # Performance tab wiring (T03)

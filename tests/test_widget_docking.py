@@ -1,10 +1,10 @@
-"""Tests for widget docking, animation, and config persistence.
+"""Tests for widget edge-snap detection, peek position, slide animation,
+and live magnet snap during drag.
 
-Covers T03 must-haves:
+Covers:
 - Left/right-only snap detection (top returns None)
-- Peek position math (1/5th visible when docked)
+- Peek position math (1/5th visible when snapped)
 - Slide animation convergence over ~9 ticks
-- Config save/load round-trip for dock_edge
 - Live magnet snap during drag
 """
 
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QApplication
 
 
 # ---------------------------------------------------------------------------
-# Qt application fixture (session-scoped, same pattern as test_transcript_management.py)
+# Qt application fixture (session-scoped)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
@@ -53,12 +53,7 @@ class _FakeScreenGeometry:
 
 @pytest.fixture
 def widget(qapp):
-    """Create a MeetAndReadWidget with mocked screen geometry.
-
-    QApplication.primaryScreen() is patched so tests are deterministic
-    regardless of the host machine.  Config save/load is mocked to avoid
-    cross-test contamination via real config file.
-    """
+    """Create a MeetAndReadWidget with mocked screen geometry."""
     from meetandread.widgets.main_widget import MeetAndReadWidget
 
     fake_screen = MagicMock()
@@ -69,7 +64,6 @@ def widget(qapp):
          patch.object(QApplication, "screens", return_value=[fake_screen]), \
          patch("meetandread.widgets.main_widget.get_config") as mock_get, \
          patch("meetandread.widgets.main_widget.save_config"):
-        # Return default settings so widget doesn't pick up stale state
         from meetandread.config.models import UISettings, AppSettings
         mock_get.return_value = AppSettings(ui=UISettings())
 
@@ -92,10 +86,8 @@ SNAP_THRESHOLD = 20
 
 
 def _move_to(widget, x, y):
-    """Move widget and fully reset docking/animation state."""
+    """Move widget and reset animation state."""
     widget.move(x, y)
-    widget.is_docked = False
-    widget.dock_edge = None
     widget.is_dragging = False
     widget._slide_state.active = False
 
@@ -112,7 +104,6 @@ def _advance_animations(widget, ticks=15, interval_ms=33):
     def fake_monotonic():
         nonlocal call_count
         call_count += 1
-        # Each call to monotonic from _update_animations returns base + accumulated ticks
         return base_monotonic() + (call_count * interval_ms / 1000.0)
 
     with patch("meetandread.widgets.main_widget._time.monotonic", fake_monotonic):
@@ -127,67 +118,58 @@ def _advance_animations(widget, ticks=15, interval_ms=33):
 class TestSnapDetectionLeftRightOnly:
     """_check_snap_to_edge should only detect left and right edges."""
 
-    def test_snap_left(self, widget):
-        """Widget near left edge should dock to 'left'."""
+    def test_snap_left_triggers_slide(self, widget):
+        """Widget near left edge should trigger a slide to peek position."""
         _move_to(widget, 10, 500)
         widget._check_snap_to_edge()
-        assert widget.dock_edge == "left"
-        assert widget.is_docked is True
+        # Animation should have started (slide to left peek position)
+        assert widget._slide_state.active
 
-    def test_snap_right(self, widget):
-        """Widget near right edge should dock to 'right'."""
+    def test_snap_right_triggers_slide(self, widget):
+        """Widget near right edge should trigger a slide to peek position."""
         _move_to(widget, SCREEN_W - WIDGET_W - 10, 500)
         widget._check_snap_to_edge()
-        assert widget.dock_edge == "right"
-        assert widget.is_docked is True
+        assert widget._slide_state.active
 
-    def test_top_returns_none(self, widget):
-        """Widget near top edge should NOT dock (top/bottom removed)."""
+    def test_top_no_snap(self, widget):
+        """Widget near top edge should NOT trigger snap."""
         _move_to(widget, 500, 5)
         widget._check_snap_to_edge()
-        assert widget.dock_edge is None
-        assert widget.is_docked is False
+        assert not widget._slide_state.active
 
-    def test_bottom_returns_none(self, widget):
-        """Widget near bottom edge should NOT dock (top/bottom removed)."""
+    def test_bottom_no_snap(self, widget):
+        """Widget near bottom edge should NOT trigger snap."""
         _move_to(widget, 500, SCREEN_H - WIDGET_H - 5)
         widget._check_snap_to_edge()
-        assert widget.dock_edge is None
-        assert widget.is_docked is False
+        assert not widget._slide_state.active
 
     def test_center_no_snap(self, widget):
-        """Widget in center should not dock."""
+        """Widget in center should not trigger snap."""
         _move_to(widget, 500, 500)
         widget._check_snap_to_edge()
-        assert widget.dock_edge is None
-        assert widget.is_docked is False
+        assert not widget._slide_state.active
 
 
 class TestPeekPositionCalculation:
-    """When docked, only 1/5th of widget width should be visible."""
+    """When snapped to edge, only 1/5th of widget width should be visible."""
 
     def test_peek_width_value(self, widget):
         """_peek_width should be 1/5th of widget width (40px for 200px widget)."""
         assert widget.width() == WIDGET_W
         assert widget._peek_width == 40  # int(200 * 0.2)
 
-    def test_dock_left_peek_position(self, widget):
-        """Docked left: x should be -(width - peek_width) = -160."""
+    def test_snap_left_peek_position(self, widget):
+        """Snapping left should slide to x = -(width - peek_width) = -160."""
         _move_to(widget, 10, 500)
-        widget.dock_edge = "left"
-        widget.is_docked = True
-        widget._update_docked_state()
+        widget._check_snap_to_edge()
 
-        # Animation is running — advance to completion with simulated time
         _advance_animations(widget, ticks=12)
         assert widget.pos().x() == -(WIDGET_W - 40)  # -160
 
-    def test_dock_right_peek_position(self, widget):
-        """Docked right: x should be screen_width - peek_width = 1880."""
+    def test_snap_right_peek_position(self, widget):
+        """Snapping right should slide to x = screen_width - peek_width = 1880."""
         _move_to(widget, SCREEN_W - WIDGET_W - 10, 500)
-        widget.dock_edge = "right"
-        widget.is_docked = True
-        widget._update_docked_state()
+        widget._check_snap_to_edge()
 
         _advance_animations(widget, ticks=12)
         assert widget.pos().x() == SCREEN_W - 40  # 1880
@@ -202,7 +184,6 @@ class TestSlideAnimationInterpolation:
         target = QPoint(100, 500)
         widget._start_slide_to(target)
 
-        # Advance 10 ticks (~330ms at 33ms/frame) with simulated time
         _advance_animations(widget, ticks=10)
 
         assert not widget._slide_state.active, "Animation should be finished"
@@ -214,7 +195,6 @@ class TestSlideAnimationInterpolation:
         _move_to(widget, 500, 500)
         target = QPoint(100, 500)
 
-        # Manually advance with simulated time, capturing positions per tick
         base_monotonic = _time.monotonic
         call_count = 0
 
@@ -230,10 +210,8 @@ class TestSlideAnimationInterpolation:
                 widget._update_animations()
                 positions.append(widget.pos().x())
 
-        # Calculate deltas between consecutive positions
         deltas = [abs(positions[i + 1] - positions[i]) for i in range(len(positions) - 1)]
 
-        # Early deltas should be larger than later deltas (ease-out property)
         mid = len(deltas) // 2
         early_avg = sum(deltas[:mid]) / max(mid, 1)
         late_avg = sum(deltas[mid:]) / max(len(deltas) - mid, 1)
@@ -243,79 +221,28 @@ class TestSlideAnimationInterpolation:
         )
 
 
-class TestConfigPersistenceRoundTrip:
-    """dock_edge should survive config save/load cycle."""
-
-    def test_save_and_restore_dock_left(self, widget):
-        """Set dock_edge='left', save, reload config, assert dock_edge='left'."""
-        from meetandread.config import get_config, set_config, save_config, AppSettings
-        from meetandread.config.models import UISettings
-
-        with patch("meetandread.widgets.main_widget.save_config"):
-            widget.dock_edge = "left"
-            widget._save_position()
-
-        # Read back via get_config (uses real config backend)
-        settings = get_config()
-        assert settings.ui.widget_dock_edge == "left"
-
-        # Clean up — restore None for subsequent tests
-        widget.dock_edge = None
-        with patch("meetandread.widgets.main_widget.save_config"):
-            widget._save_position()
-
-    def test_save_and_restore_undocked(self, widget):
-        """Set dock_edge=None, save, reload config, assert dock_edge=None."""
-        from meetandread.config import get_config
-
-        with patch("meetandread.widgets.main_widget.save_config"):
-            widget.dock_edge = None
-            widget._save_position()
-
-        settings = get_config()
-        assert settings.ui.widget_dock_edge is None
-
-    def test_save_and_restore_dock_right(self, widget):
-        """Set dock_edge='right', save, reload, assert dock_edge='right'."""
-        from meetandread.config import get_config
-
-        with patch("meetandread.widgets.main_widget.save_config"):
-            widget.dock_edge = "right"
-            widget._save_position()
-
-        settings = get_config()
-        assert settings.ui.widget_dock_edge == "right"
-
-        # Clean up
-        widget.dock_edge = None
-        with patch("meetandread.widgets.main_widget.save_config"):
-            widget._save_position()
-
-
 class TestLiveMagnetSnapDuringDrag:
-    """Live magnet snap should dock/undock while dragging."""
+    """Live magnet snap should slide to peek position while dragging."""
 
     def test_magnet_snap_to_left_edge(self, widget):
-        """Dragging near left edge should trigger magnet snap."""
+        """Dragging near left edge should trigger magnet snap slide."""
         _move_to(widget, 500, 500)
 
-        # Simulate drag state
         widget.is_dragging = True
         widget.drag_start_pos = QPoint(500, 500)
         widget.widget_start_pos = QPoint(500, 500)
 
-        # Compute position near left edge
-        new_pos = QPoint(10, 500)  # within 20px of left edge
+        new_pos = QPoint(10, 500)
         widget._apply_drag_position(new_pos)
 
-        # Advance animation to let snap complete
-        _advance_animations(widget, ticks=12)
+        # Should have started a slide animation to peek position
+        assert widget._slide_state.active
 
-        assert widget.is_docked is True
-        assert widget.dock_edge == "left"
+        _advance_animations(widget, ticks=12)
+        assert widget.pos().x() == -(WIDGET_W - 40)  # -160
 
     def test_magnet_snap_to_right_edge(self, widget):
-        """Dragging near right edge should trigger magnet snap."""
+        """Dragging near right edge should trigger magnet snap slide."""
         _move_to(widget, 500, 500)
 
         widget.is_dragging = True
@@ -325,27 +252,27 @@ class TestLiveMagnetSnapDuringDrag:
         new_pos = QPoint(SCREEN_W - WIDGET_W - 10, 500)
         widget._apply_drag_position(new_pos)
 
-        _advance_animations(widget, ticks=12)
+        assert widget._slide_state.active
 
-        assert widget.is_docked is True
-        assert widget.dock_edge == "right"
+        _advance_animations(widget, ticks=12)
+        assert widget.pos().x() == SCREEN_W - 40  # 1880
 
     def test_magnet_unsnap_away_from_edge(self, widget):
-        """Moving away from edge during drag should unsnap."""
-        # First snap to left
-        _move_to(widget, 10, 500)
-        widget.is_dragging = True
-        widget.drag_start_pos = QPoint(10, 500)
-        widget.widget_start_pos = QPoint(10, 500)
-        widget.is_docked = True
-        widget.dock_edge = "left"
+        """Moving away from edge during drag should follow mouse directly."""
+        _move_to(widget, 500, 500)
 
-        # Now move to center — should unsnap immediately
+        widget.is_dragging = True
+        widget.drag_start_pos = QPoint(500, 500)
+        widget.widget_start_pos = QPoint(500, 500)
+
+        # First snap to left
+        widget._apply_drag_position(QPoint(10, 500))
+
+        # Now move to center — should follow mouse directly (no slide)
         center_pos = QPoint(500, 500)
         widget._apply_drag_position(center_pos)
 
-        assert widget.is_docked is False
-        assert widget.dock_edge is None
+        # Not near edge, so move() should have been called directly
         assert widget.pos().x() == 500
 
     def test_drag_edge_snap_check_method(self, widget):
@@ -369,3 +296,76 @@ class TestLiveMagnetSnapDuringDrag:
         snap, edge = widget._check_drag_edge_snap(QPoint(500, 5))
         assert snap is False
         assert edge is None
+
+
+class TestFreeFloatingPanelPositioning:
+    """Panels should open at a simple offset from widget — no docking."""
+
+    def test_settings_panel_opens_at_offset(self, widget, qapp):
+        """Settings panel should appear to the right of the widget."""
+        widget.move(300, 200)
+        panel = widget._floating_settings_panel
+        assert panel is not None
+
+        # Toggle settings open
+        widget._toggle_settings_panel()
+        for _ in range(20):
+            qapp.processEvents()
+
+        # Panel should be visible
+        assert panel.isVisible()
+
+        # Panel should be positioned to the right of the widget
+        expected_x = widget.x() + widget.width() + 10
+        expected_y = widget.y()
+        assert panel.x() == expected_x
+        assert panel.y() == expected_y
+
+        # Clean up
+        panel.hide_panel()
+
+    def test_settings_panel_not_synced_on_widget_move(self, widget, qapp):
+        """After opening, moving the widget should NOT move the settings panel."""
+        widget.move(300, 200)
+        panel = widget._floating_settings_panel
+
+        widget._toggle_settings_panel()
+        for _ in range(20):
+            qapp.processEvents()
+
+        panel_pos = panel.pos()
+
+        # Move widget
+        widget.move(600, 400)
+        for _ in range(5):
+            qapp.processEvents()
+
+        # Panel should NOT have moved (free-floating)
+        assert panel.pos() == panel_pos
+
+        # Clean up
+        panel.hide_panel()
+
+    def test_cc_overlay_free_floating(self, widget, qapp):
+        """CC overlay should not follow widget moves."""
+        overlay = widget._cc_overlay
+        if overlay is None:
+            pytest.skip("CC overlay not available")
+
+        widget.move(300, 200)
+        overlay.show_panel()
+        for _ in range(20):
+            qapp.processEvents()
+
+        original_pos = overlay.pos()
+
+        # Move widget
+        widget.move(600, 400)
+        for _ in range(5):
+            qapp.processEvents()
+
+        # Overlay should NOT have moved
+        assert overlay.pos() == original_pos
+
+        # Clean up
+        overlay.hide_panel()
