@@ -875,29 +875,6 @@ def aetheric_nav_button_css(p: ThemePalette) -> str:
     """
 
 
-def aetheric_dock_bay_css(p: ThemePalette) -> str:
-    """Aetheric Glass dock bay — container for docking indicators.
-
-    The dock bay shows alignment/positioning state between the settings
-    shell and the parent widget.
-
-    Object name selector: ``AethericDockBay``
-
-    Args:
-        p: Active theme palette.
-
-    Returns:
-        QSS string for the dock bay container.
-    """
-    return f"""
-        QWidget#AethericDockBay {{
-            background-color: transparent;
-            border: 1px solid {AETHERIC_BORDER_LIGHT};
-            border-radius: 8px;
-        }}
-    """
-
-
 def aetheric_placeholder_css(p: ThemePalette) -> str:
     """Aetheric Glass placeholder rows — glass translucent item rows.
 
