@@ -227,14 +227,8 @@ to avoid clipping issues and enable proper text rendering.
         self.widget_start_pos = QPoint()
         self.press_time = QTime.currentTime()
 
-        # Docking state
-        self.is_docked = False
-        self.dock_edge = None  # 'left', 'right'
+        # Slide animation state (edge snap/peek)
         self._slide_state = _SlideState()
-        
-        # Settings docked-pair state (T03: recursion-guarded movement sync)
-        self._syncing_docked_pair: bool = False  # guard flag to prevent recursion
-        self._settings_docked: bool = False  # True when settings panel is docked
         
         # Visual state machine (idle → recording → processing → idle)
         self._visual_state = _WidgetVisualStateMachine(WidgetVisualState.IDLE)
@@ -415,66 +409,9 @@ to avoid clipping issues and enable proper text rendering.
         # Warning indicator below error indicator
         self._warning_indicator.setPos(10, 120)
     
-    def _update_floating_panels_position(self):
-        """Update position of floating panels based on widget position.
-
-        Only left/right docking is supported — panels open on the side
-        opposite the docked edge.
-
-        For the settings panel, when docked it follows the widget using
-        the stored dock offset from FloatingSettingsPanel, guarded by
-        _syncing_docked_pair to prevent recursive move loops.
-
-        The CC overlay is NOT repositioned here — it is draggable and
-        only docked on first show via _has_been_docked guard.
-        """
-        if not self._floating_transcript_panel or not self._floating_settings_panel:
-            return
-
-        if self.dock_edge == 'right':
-            transcript_pos = "left"
-        elif self.dock_edge == 'left':
-            transcript_pos = "right"
-        else:
-            # Default: panel flows to the left
-            transcript_pos = "left"
-
-        # Update transcript panel position (existing behavior)
-        if self._floating_transcript_panel.isVisible():
-            self._floating_transcript_panel.dock_to_widget(self, transcript_pos)
-
-        # Update settings panel position — use dock-offset sync when docked
-        if self._floating_settings_panel.isVisible():
-            if self._syncing_docked_pair:
-                # Already syncing from panel→widget direction — skip
-                return
-            if self._settings_docked:
-                # Sync panel to widget using stored offset
-                panel = self._floating_settings_panel
-                offset = panel._dock_offset
-                new_panel_pos = self.pos() + offset
-
-                # No-op guard — skip if panel already at target
-                current_panel_pos = panel.pos()
-                if (new_panel_pos.x() == current_panel_pos.x() and
-                        new_panel_pos.y() == current_panel_pos.y()):
-                    return
-
-                # Apply under guard
-                self._syncing_docked_pair = True
-                try:
-                    panel.move(new_panel_pos)
-                finally:
-                    self._syncing_docked_pair = False
-            else:
-                # Fallback: use generic positioning
-                settings_pos = "right" if self.dock_edge == 'left' else "right"
-                self._floating_settings_panel.dock_to_widget(self, settings_pos)
-    
     def moveEvent(self, event):
-        """Handle widget move - update floating panel positions."""
+        """Handle widget move — no panel repositioning (panels are independent)."""
         super().moveEvent(event)
-        self._update_floating_panels_position()
     
     def _position_initial(self):
         """Position widget on screen initially."""
@@ -485,12 +422,6 @@ to avoid clipping issues and enable proper text rendering.
                 x, y = settings.ui.widget_position
                 self.move(x, y)
                 logging.debug("Restored widget position: (%d, %d)", x, y)
-                
-                # Restore dock state if applicable
-                if settings.ui.widget_dock_edge:
-                    self.dock_edge = settings.ui.widget_dock_edge
-                    self.is_docked = True
-                    self._update_docked_state()
                 
                 # Off-screen recovery: if saved position is no longer valid
                 # (e.g. monitor disconnected), snap to nearest valid position
@@ -578,7 +509,7 @@ to avoid clipping issues and enable proper text rendering.
         # Interpolate window opacity for glass idle effect
         self._update_visual_state_opacity()
 
-        # --- Slide animation (edge docking) ---
+        # --- Slide animation (edge snap/peek) ---
         s = self._slide_state
         if s.active:
             elapsed = int(_time.monotonic() * 1000) - s.start_time_ms
@@ -669,12 +600,8 @@ to avoid clipping issues and enable proper text rendering.
         mouse freely.
         """
         should_snap, edge = self._check_drag_edge_snap(new_pos)
-        was_docked = self.is_docked
 
         if should_snap:
-            # Commit to docked peek position
-            self.dock_edge = edge
-            self.is_docked = True
             peek = self._peek_width
             screen = QApplication.primaryScreen().geometry()
             if edge == 'left':
@@ -686,14 +613,7 @@ to avoid clipping issues and enable proper text rendering.
                 "Magnet snap: edge=%s, target=%s", edge, target
             )
         else:
-            # Not near any edge — unsnap if previously docked
-            if was_docked:
-                self.is_docked = False
-                self.dock_edge = None
-                logging.getLogger(__name__).debug("Magnet unsnap: following mouse")
             self.move(new_pos)
-
-        self._update_floating_panels_position()
 
     def mouseMoveEvent(self, event):
         """Handle dragging from any component with live magnet snap."""
@@ -742,22 +662,28 @@ to avoid clipping issues and enable proper text rendering.
         pos = self.pos()
         snap_threshold = 20
 
-        if pos.x() < snap_threshold:
-            self.dock_edge = 'left'
-            self.is_docked = True
-        elif pos.x() + self.width() > screen.width() - snap_threshold:
-            self.dock_edge = 'right'
-            self.is_docked = True
-        else:
-            self.is_docked = False
-            self.dock_edge = None
+        should_snap = False
+        edge = None
 
-        self._update_docked_state()
-        self._update_floating_panels_position()
+        if pos.x() < snap_threshold:
+            should_snap = True
+            edge = 'left'
+        elif pos.x() + self.width() > screen.width() - snap_threshold:
+            should_snap = True
+            edge = 'right'
+
+        if should_snap:
+            peek = self._peek_width
+            if edge == 'right':
+                target_x = screen.width() - peek
+                self._start_slide_to(QPoint(target_x, self.y()))
+            elif edge == 'left':
+                target_x = -(self.width() - peek)
+                self._start_slide_to(QPoint(target_x, self.y()))
     
     @property
     def _peek_width(self) -> int:
-        """Width of the visible peek strip when docked (1/5th of widget)."""
+        """Width of the visible peek strip when snapped to screen edge (1/5th of widget)."""
         return int(self.width() * 0.2)
 
     def _start_slide_to(self, target_pos: QPoint):
@@ -776,22 +702,6 @@ to avoid clipping issues and enable proper text rendering.
             "Slide start: %s → %s", s.start_pos, target_pos
         )
 
-    def _update_docked_state(self):
-        """Update widget appearance based on docked state.
-
-        When docked, slides the widget to a peek position where only 1/5th
-        of its width is visible at the screen edge. Uses smooth 300 ms
-        slide animation instead of instant positioning.
-        """
-        if self.is_docked:
-            peek = self._peek_width
-            if self.dock_edge == 'right':
-                target_x = QApplication.primaryScreen().geometry().width() - peek
-                self._start_slide_to(QPoint(target_x, self.y()))
-            elif self.dock_edge == 'left':
-                target_x = -(self.width() - peek)
-                self._start_slide_to(QPoint(target_x, self.y()))
-    
     def _get_selected_sources(self):
         """Get set of selected audio sources based on lobe states."""
         sources = set()
@@ -926,7 +836,7 @@ to avoid clipping issues and enable proper text rendering.
         """Handle controller state changes.
 
         Routes CC overlay lifecycle:
-        - RECORDING: clear, cancel any pending hide, show (first-docked)
+        - RECORDING: clear, cancel any pending hide, show
         - STOPPING/IDLE/ERROR: start delayed hide (keeps final words)
         """
         if state == ControllerState.RECORDING:
@@ -944,18 +854,24 @@ to avoid clipping issues and enable proper text rendering.
             if self._cc_overlay:
                 logging.debug("Showing CC overlay for recording")
                 self._cc_overlay.clear()
-                # Only dock to widget on first show; preserve user position after that
-                if not self._cc_overlay._has_been_docked:
-                    self._cc_overlay.dock_to_widget(self, self._get_panel_position())
+                # Position near widget on first show if never positioned
+                if not self._cc_overlay.isVisible():
+                    try:
+                        offset_x = self.x() - self._cc_overlay.width() - 10
+                        offset_y = self.y()
+                        # Ensure it stays on screen
+                        screen = QApplication.primaryScreen().geometry()
+                        if offset_x < screen.left():
+                            offset_x = self.x() + self.width() + 10
+                        self._cc_overlay.move(offset_x, offset_y)
+                    except (TypeError, AttributeError):
+                        pass  # Graceful fallback in test/mock environments
                 self._cc_overlay.show_panel()
             
             # Show floating transcript panel when recording starts (legacy)
             if self._floating_transcript_panel:
                 logging.debug("Showing floating transcript panel")
                 self._floating_transcript_panel.clear()
-                # Only dock to widget on first show; preserve user position after that
-                if not self._floating_transcript_panel._has_been_docked:
-                    self._floating_transcript_panel.dock_to_widget(self, self._get_panel_position())
                 self._floating_transcript_panel.show_panel()
                 # Switch to Live tab
                 self._floating_transcript_panel._tab_widget.setCurrentIndex(0)
@@ -1010,15 +926,6 @@ to avoid clipping issues and enable proper text rendering.
         # Forward state to tray icon manager
         if self._tray_manager is not None:
             self._tray_manager.update_recording_state(state)
-    
-    def _get_panel_position(self):
-        """Determine where to dock the panel based on widget position."""
-        if self.dock_edge == 'right':
-            return "left"
-        elif self.dock_edge == 'left':
-            return "right"
-        else:
-            return "left"  # Default
     
     def _on_controller_error(self, error):
         """Handle controller errors."""
@@ -1141,32 +1048,23 @@ to avoid clipping issues and enable proper text rendering.
             if self._cc_overlay.isVisible():
                 self._cc_overlay.hide_panel()
             else:
-                if not self._cc_overlay._has_been_docked:
-                    self._cc_overlay.dock_to_widget(self, self._get_panel_position())
                 self._cc_overlay.show_panel()
     
     def _toggle_settings_panel(self):
         """Toggle floating settings panel visibility.
 
-        Opening: docks the settings shell to the widget's current position
-        using dock-bay alignment, then attaches for bidirectional movement.
-        Closing: detaches the dock pair so the widget stays at its position.
-
-        Uses _settings_docked flag rather than isVisible() to avoid race
-        conditions during the 150ms fade-out animation.
+        Opening: positions the settings panel with a default offset from
+        the widget. Closing: simply hides the panel. Panels are
+        independent free-floating windows — no docking or z-order sync.
         """
         if self._floating_settings_panel:
-            if self._settings_docked:
-                # Currently docked/open → close
+            if self._floating_settings_panel.isVisible():
                 self._floating_settings_panel.hide_panel()
-                self._settings_docked = False
             else:
-                # Currently closed/undocked → open
-                # Position via dock-bay alignment
-                self._floating_settings_panel.dock_to_widget(self, "right")
-                # Attach for bidirectional docked-pair movement
-                self._floating_settings_panel.attach_dock(self)
-                self._settings_docked = True
+                # Position with offset to the right of the widget
+                offset_x = self.x() + self.width() + 10
+                offset_y = self.y()
+                self._floating_settings_panel.move(offset_x, offset_y)
                 self._floating_settings_panel.show_panel()
     
     def toggle_recording(self):
@@ -1243,9 +1141,8 @@ to avoid clipping issues and enable proper text rendering.
         """Save widget position to config."""
         try:
             set_config('ui.widget_position', (self.x(), self.y()))
-            set_config('ui.widget_dock_edge', self.dock_edge)
             save_config()
-            logging.debug("Saved widget position: (%d, %d), dock: %s", self.x(), self.y(), self.dock_edge)
+            logging.debug("Saved widget position: (%d, %d)", self.x(), self.y())
         except Exception as e:
             logging.warning("Failed to save position: %s", e)
     
