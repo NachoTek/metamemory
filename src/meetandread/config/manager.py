@@ -296,10 +296,6 @@ class ConfigManager:
         logger.info("Settings reloaded from disk")
 
 
-# Module-level singleton instance
-_config_manager: Optional[ConfigManager] = None
-
-
 def get_config_manager() -> ConfigManager:
     """Get the singleton ConfigManager instance.
     
@@ -308,10 +304,9 @@ def get_config_manager() -> ConfigManager:
     Returns:
         ConfigManager singleton instance.
     """
-    global _config_manager
-    if _config_manager is None:
-        _config_manager = ConfigManager()
-    return _config_manager
+    if ConfigManager._instance is None:
+        ConfigManager()
+    return ConfigManager._instance
 
 
 def get_config(key_path: Optional[str] = None) -> Any:
